@@ -17,7 +17,7 @@ app.use(cookieParser());
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
 // ─── Auth ───
-const CREDENTIALS = { username: 'ash@admin', password: 'ash' };
+const CREDENTIALS = { username: 'v1ra@admin', password: 'ash' };
 const SESSIONS = new Set();
 
 function authMiddleware(req, res, next) {
@@ -47,7 +47,7 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'login.html')));
 app.get('/dashboard', authMiddleware, (req, res) => res.sendFile(path.join(__dirname, 'dashboard.html')));
 
 // ─── Paths (env-var overridable for server deployment) ───
-const SCRAPPER_DIR = process.env.SCRAPPER_DIR || '/home/ashutosh-yadav/Desktop/scrapper_clean/scrapper';
+const SCRAPPER_DIR = process.env.SCRAPPER_DIR || path.join(__dirname, 'scrapper');
 const IG_CSV       = process.env.IG_CSV       || path.join(SCRAPPER_DIR, 'instagram_accounts.csv');
 const TK_CSV       = process.env.TK_CSV       || path.join(SCRAPPER_DIR, 'tiktok_accounts.csv');
 const IG_LOG       = process.env.IG_LOG       || path.join(SCRAPPER_DIR, 'logs', 'instagram-out.log');
