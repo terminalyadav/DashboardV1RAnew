@@ -135,7 +135,7 @@ async function loadGlobal() {
     if(r.status===401) { window.location.href='/'; return; }
     const d = await r.json();
 
-    const hist = typeof getFilteredCreatorOutreach === 'function' ? getFilteredCreatorOutreach() : { sent: 0, replies: 0 };
+    const hist = typeof getFilteredCreatorOutreach === 'function' ? getFilteredCreatorOutreach() : { sent: 0, replies: 0, signups: 0, social: 0, email: 0 };
     const histBrands = typeof getFilteredBrandOutreach === 'function' ? getFilteredBrandOutreach() : { sent: 0, replies: 0 };
 
     animateVal('g-cloud-em', d.cloud.emails);
@@ -174,7 +174,7 @@ async function loadGlobal() {
     // Creator / Brand Updates
     if (view === 'creator' || view === 'brand') {
        const s = d.stats;
-       const vHist = view === 'creator' ? hist : { sent: 0, replies: 0 };
+       const vHist = view === 'creator' ? hist : { sent: 0, replies: 0, signups: 0, social: 0, email: 0 };
 
        const cUsers = s.creatorCloud + s.creatorSanj;
        const cTotal = s.creatorCloud + s.creatorSanj;
@@ -185,12 +185,19 @@ async function loadGlobal() {
        const cSent = cCloudSentWithHist + s.creatorSanjSent;
        const cRep = cCloudRepWithHist + s.creatorSanjRep;
        
-       animateVal('c-users', cUsers);
-       animateVal('c-total', cTotal);
-       animateVal('c-sent', cSent);
-       animateVal('c-replied', cRep);
-       document.getElementById('c-reply-rate').innerText = cSent > 0 ? ((cRep / cSent) * 100).toFixed(1) + '%' : '0%';
-       document.getElementById('c-rate').innerText = cTotal > 0 ? ((cSent / cTotal) * 100).toFixed(1) + '%' : '0%';
+       // Real-time Aggregation for Top Cards (History + Live API data)
+       const displaySent = cSent;
+       const displayRep = cRep;
+       
+       animateVal('c-total', displaySent);
+       animateVal('c-replied', displayRep);
+       
+       const replyRateStr = displaySent > 0 ? ((displayRep / displaySent) * 100).toFixed(1) + '%' : '0%';
+       const rateEl = document.getElementById('c-reply-rate');
+       if (rateEl) {
+           rateEl.innerText = replyRateStr;
+           rateEl.dataset.val = replyRateStr; // Stop any trailing animation conflicts
+       }
        
        animateVal('c-cloud-em', s.creatorCloud);
        animateVal('c-local-em', s.creatorSanj);
@@ -199,10 +206,10 @@ async function loadGlobal() {
        animateVal('c-cloud-rep', cCloudRepWithHist);
        animateVal('c-local-rep', s.creatorSanjRep);
 
-       // Update new Signup Metrics dynamically or staticaly
-       animateVal('c-signup-total', 116);
-       animateVal('c-signup-social', 66);
-       animateVal('c-signup-email', 50);
+       // Update new Signup Metrics dynamically (Signups come from history since no live API has signups currently, but if there's any we can add it later)
+       animateVal('c-signup-total', vHist.signups || 0);
+       animateVal('c-signup-social', vHist.social || 0);
+       animateVal('c-signup-email', vHist.email || 0);
 
        const bUsers = s.brandCloud + s.brandSanj;
        const bTotal = s.brandCloud + s.brandSanj;
@@ -535,27 +542,49 @@ function loadBrandOutreachChart() {
 let creatorChart = null;
 
 const creatorOutreachHistory = [
-  { date: "02/03", sent: 500, replies: 11 },
-  { date: "03/03", sent: 1000, replies: 33 },
-  { date: "04/03", sent: 1000, replies: 59 },
-  { date: "05/03", sent: 2000, replies: 70 },
-  { date: "06/03", sent: 3000, replies: 108 },
-  { date: "07/03", sent: 0, replies: 83 },
-  { date: "08/03", sent: 0, replies: 80 },
-  { date: "09/03", sent: 1500, replies: 39 },
-  { date: "10/03", sent: 1500, replies: 66 },
-  { date: "11/03", sent: 0, replies: 65 },
-  { date: "12/03", sent: 468, replies: 20 },
-  { date: "13/03", sent: 1146, replies: 49 },
-  { date: "14/03", sent: 1918, replies: 40 },
-  { date: "15/03", sent: 20, replies: 7 },
-  { date: "16/03", sent: 0, replies: 14 }
+  { date: "02/03", sent: 500, replies: 11, signups: 11, social: 6, email: 5 },
+  { date: "03/03", sent: 1000, replies: 33, signups: 8, social: 5, email: 3 },
+  { date: "04/03", sent: 1000, replies: 59, signups: 7, social: 4, email: 3 },
+  { date: "05/03", sent: 2000, replies: 70, signups: 11, social: 9, email: 2 },
+  { date: "06/03", sent: 3000, replies: 108, signups: 14, social: 11, email: 3 },
+  { date: "07/03", sent: null, replies: 83, signups: 14, social: 6, email: 8 },
+  { date: "08/03", sent: null, replies: 80, signups: 9, social: 4, email: 5 },
+  { date: "09/03", sent: 1500, replies: 39, signups: 8, social: 4, email: 4 },
+  { date: "10/03", sent: 1500, replies: 66, signups: 7, social: 3, email: 4 },
+  { date: "11/03", sent: null, replies: 65, signups: 6, social: 2, email: 4 },
+  { date: "12/03", sent: 468, replies: 20, signups: 4, social: 2, email: 2 },
+  { date: "13/03", sent: 1146, replies: 49, signups: 0, social: 0, email: 0 },
+  { date: "14/03", sent: 1918, replies: 40, signups: 8, social: 6, email: 2 },
+  { date: "15/03", sent: 20, replies: 7, signups: 2, social: 1, email: 1 },
+  { date: "16/03", sent: null, replies: 14, signups: 2, social: 0, email: 2 },
+  { date: "17/03", sent: 684, replies: 22, signups: 5, social: 3, email: 2 },
+  { date: "18/03", sent: 2550, replies: 55, signups: 6, social: 0, email: 6 },
+  { date: "19/03", sent: 1794, replies: 25, signups: 5, social: 0, email: 5 },
+  { date: "20/03", sent: 321, replies: 10, signups: 1, social: 0, email: 1 },
+  { date: "21/03", sent: 336, replies: 13, signups: 4, social: 2, email: 2 },
+  { date: "22/03", sent: 761, replies: 8, signups: 0, social: 0, email: 0 },
+  { date: "23/03", sent: 1718, replies: 20, signups: 2, social: 2, email: 0 },
+  { date: "24/03", sent: 1368, replies: 22, signups: 2, social: 0, email: 2 },
+  { date: "25/03", sent: 3843, replies: 30, signups: 0, social: 0, email: 0 },
+  { date: "26/03", sent: 0, replies: 16, signups: 0, social: 0, email: 0 },
+  { date: "27/03", sent: 2833, replies: 35, signups: 5, social: 3, email: 2 },
+  { date: "28/03", sent: 3844, replies: 50, signups: 11, social: 7, email: 4 },
+  { date: "29/03", sent: 2953, replies: 80, signups: 20, social: 13, email: 7 },
+  { date: "30/03", sent: 1870, replies: 78, signups: 20, social: 13, email: 7 },
+  { date: "31/03", sent: 810, replies: 44, signups: 19, social: 11, email: 8 },
+  { date: "01/04", sent: 817, replies: 34, signups: 11, social: 5, email: 6 },
+  { date: "02/04", sent: 2009, replies: 29, signups: 13, social: 8, email: 5 },
+  { date: "03/04", sent: 1456, replies: 40, signups: 18, social: 9, email: 9 },
+  { date: "04/04", sent: 965, replies: null, signups: null, social: null, email: null }
 ];
 
 function getFilteredCreatorOutreach() {
-  if (typeof creatorOutreachHistory === 'undefined') return { sent: 0, replies: 0 };
+  if (typeof creatorOutreachHistory === 'undefined') return { sent: 0, replies: 0, signups: 0, social: 0, email: 0 };
   let sent = 0;
   let replies = 0;
+  let signups = 0;
+  let social = 0;
+  let email = 0;
   creatorOutreachHistory.forEach(item => {
     const parts = item.date.split('/');
     if (parts.length === 2) {
@@ -564,12 +593,15 @@ function getFilteredCreatorOutreach() {
       if (currentRange && currentRange.start && itemDateStr < currentRange.start) include = false;
       if (currentRange && currentRange.end && itemDateStr > currentRange.end) include = false;
       if (include) {
-        sent += item.sent;
-        replies += item.replies;
+        sent += item.sent || 0;
+        replies += item.replies || 0;
+        signups += item.signups || 0;
+        social += item.social || 0;
+        email += item.email || 0;
       }
     }
   });
-  return { sent, replies };
+  return { sent, replies, signups, social, email };
 }
 
 function loadCreatorOutreachChart() {
@@ -578,6 +610,21 @@ function loadCreatorOutreachChart() {
   const labels = creatorOutreachHistory.map(d => d.date);
   const sentData = creatorOutreachHistory.map(d => d.sent);
   const repliesData = creatorOutreachHistory.map(d => d.replies);
+
+  // Evaluate Trends for DOM Insights
+  let peakSent = 0, peakSentDay = "N/A", bestConv = 0, bestConvDay = "N/A";
+  let recentTotal = 0;
+  creatorOutreachHistory.forEach(d => {
+      // Find peak outreach day
+      if(d.sent > peakSent) { peakSent = d.sent; peakSentDay = d.date; }
+      // Find best conversion day (highest total signups)
+      if((d.signups || 0) > bestConv) { bestConv = (d.signups || 0); bestConvDay = d.date; }
+  });
+  
+  const insightEl = document.getElementById('trend-insight-text');
+  if(insightEl) {
+      insightEl.innerHTML = `Peak volume was a massive <strong class='text-white'>${peakSent.toLocaleString()}</strong> emails on <strong class='text-indigo-400'>${peakSentDay}</strong>. The highest conversion happened on <strong class='text-teal-400'>${bestConvDay}</strong> with <strong class='text-white'>${bestConv} total signups</strong>! Late March (29-31) saw a massive spike in engagement.`;
+  }
 
   creatorChart = createArchitecturalChart('chartCreatorOutreach', 'bar', labels, [
     {
@@ -588,9 +635,11 @@ function loadCreatorOutreachChart() {
       backgroundColor: 'transparent',
       borderWidth: 3,
       tension: 0.4,
+      spanGaps: true,
       pointBackgroundColor: '#10b981',
       pointBorderColor: '#fff',
       pointRadius: 4,
+      pointHoverRadius: 6,
       yAxisID: 'y1'
     },
     {
@@ -605,6 +654,22 @@ function loadCreatorOutreachChart() {
       yAxisID: 'y'
     }
   ], {
+    animation: { duration: 1500, easing: 'easeOutQuart' },
+    interaction: {
+      mode: 'index',
+      intersect: false,
+    },
+    plugins: {
+        tooltip: {
+            callbacks: {
+                label: function(ctx) {
+                    let val = ctx.raw;
+                    if (val === null || val === undefined) return ` ${ctx.dataset.label}: -`;
+                    return ` ${ctx.dataset.label}: ${val.toLocaleString()}`;
+                }
+            }
+        }
+    },
     scales: {
       y: { type: 'linear', position: 'left', beginAtZero: true },
       y1: { type: 'linear', position: 'right', beginAtZero: true, grid: { drawOnChartArea: false } }
