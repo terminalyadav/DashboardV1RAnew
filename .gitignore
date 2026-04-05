@@ -4,5 +4,3 @@ cookies.txt
 nohup.out
 .DS_Store
 *.log
-service-account-key.json
-*.json
