@@ -8,10 +8,10 @@ let afnanChart = null, localChart = null, nicheChart = null, countryChart = null
 let currentRange = { start: null, end: null, type: 'all', label: 'All Time' };
 
 window.addEventListener('DOMContentLoaded', () => {
-  // Initialize date range to All Time
   currentRange.start = null;
   currentRange.end = null;
   
+  updateDateField(); // sync initial active states (desktop + mobile)
   switchView('global');
   setInterval(poll, 60000);
   setInterval(pollLiveLogs, 3000);
@@ -53,7 +53,11 @@ function switchView(v) {
   const sb = document.getElementById('sidebar');
   if(sb) sb.classList.remove('mobile-open');
 
-  poll();
+  // Small delay to let the view section become visible and the browser
+  // lay out the canvas dimensions before Chart.js tries to render.
+  // The elegantFadeIn animation starts at opacity:0 so we need the element
+  // to be in the DOM and sized before Chart.js measures it.
+  setTimeout(() => poll(), 50);
 }
 
 // ─── DATE FILTER LOGIC ───
@@ -86,11 +90,16 @@ window.setDateFilter = function(type) {
   updateDateField();
   document.getElementById('date-menu').classList.add('hidden');
   document.getElementById('date-arrow').style.transform = 'rotate(0deg)';
+  // Close mobile custom range if open
+  const mobBox = document.getElementById('mob-custom-range');
+  if (mobBox) mobBox.style.display = 'none';
   poll();
 };
 
 window.showCustomRange = function() {
-  document.getElementById('custom-range-box').classList.remove('hidden');
+  // Use style.display to avoid Tailwind hidden/flex conflict
+  const box = document.getElementById('custom-range-box');
+  if (box) { box.style.display = 'flex'; box.style.flexDirection = 'column'; }
 };
 
 window.applyCustomRange = function() {
@@ -98,19 +107,71 @@ window.applyCustomRange = function() {
   const e = document.getElementById('end-date-input').value;
   if (!s || !e) { alert('Please select both start and end dates'); return; }
   
-  currentRange = { start: s, end: e, type: 'custom', label: 'Custom' };
+  currentRange = { start: s, end: e, type: 'custom', label: 'Custom Range' };
   updateDateField();
   document.getElementById('date-menu').classList.add('hidden');
   document.getElementById('date-arrow').style.transform = 'rotate(0deg)';
+  // Reset custom-range-box for next open
+  const box = document.getElementById('custom-range-box');
+  if (box) box.style.display = 'none';
+  poll();
+};
+
+// ─── MOBILE DATE RANGE ───
+window.toggleMobileDateRange = function() {
+  const box = document.getElementById('mob-custom-range');
+  if (!box) return;
+  const isOpen = box.style.display === 'flex';
+  box.style.display = isOpen ? 'none' : 'flex';
+  box.style.flexDirection = 'column';
+};
+
+window.applyMobileCustomRange = function() {
+  const s = document.getElementById('mob-start-date').value;
+  const e = document.getElementById('mob-end-date').value;
+  if (!s || !e) { alert('Please select both start and end dates'); return; }
+  currentRange = { start: s, end: e, type: 'custom', label: 'Custom Range' };
+  const box = document.getElementById('mob-custom-range');
+  if (box) box.style.display = 'none';
+  updateDateField();
   poll();
 };
 
 function updateDateField() {
   document.getElementById('current-date-label').innerText = currentRange.label;
+
+  // Desktop dropdown: highlight matching item
   document.querySelectorAll('.date-menu-item').forEach(el => {
     el.classList.remove('active');
-    if (el.innerText.trim() === currentRange.label) el.classList.add('active');
+    const txt = el.innerText.trim();
+    if (
+      txt === currentRange.label ||
+      (currentRange.type === 'custom' && txt === 'Custom Range')
+    ) el.classList.add('active');
   });
+
+  // Mobile pills: highlight matching type
+  document.querySelectorAll('.mob-date-btn').forEach(el => {
+    const btnType = el.dataset.filter;
+    const isActive = btnType === currentRange.type;
+    el.classList.toggle('bg-indigo-500/20', isActive);
+    el.classList.toggle('text-indigo-400', isActive);
+    el.classList.toggle('border-indigo-500/30', isActive);
+    el.classList.toggle('bg-white/[0.03]', !isActive);
+    el.classList.toggle('text-zinc-400', !isActive);
+    el.classList.toggle('border-white/10', !isActive);
+  });
+  // Mobile custom btn gets highlighted for custom type
+  const mobCustomBtn = document.getElementById('mob-custom-btn');
+  if (mobCustomBtn) {
+    const isActive = currentRange.type === 'custom';
+    mobCustomBtn.classList.toggle('bg-indigo-500/20', isActive);
+    mobCustomBtn.classList.toggle('text-indigo-400', isActive);
+    mobCustomBtn.classList.toggle('border-indigo-500/30', isActive);
+    mobCustomBtn.classList.toggle('bg-white/[0.03]', !isActive);
+    mobCustomBtn.classList.toggle('text-zinc-400', !isActive);
+    mobCustomBtn.classList.toggle('border-white/10', !isActive);
+  }
 }
 
 function getDateParams() {
@@ -118,12 +179,33 @@ function getDateParams() {
   return `&startDate=${currentRange.start}&endDate=${currentRange.end}`;
 }
 
+// Silently refresh creator outreach data (for views that need totals but don't show the chart)
+async function pollCreatorOutreach() {
+  try {
+    const dp = getDateParams();
+    const url = `/api/creator-outreach${dp ? '?' + dp.slice(1) : ''}`;
+    const data = await fetch(url).then(r => r.json());
+    creatorOutreachData = Array.isArray(data) ? data : [];
+  } catch(e) {
+    console.error('pollCreatorOutreach error:', e);
+    creatorOutreachData = [];
+  }
+}
+
 function poll() {
-  if(view === 'global') { loadGlobal(); }
-  if(view === 'creator') { loadGlobal(); loadCreatorOutreachChart(); cLoad(); }
-  if(view === 'brand') { loadGlobal(); loadBrandOutreachChart(); bLoad(); }
-  if(view === 'afnan') { loadGlobal(); loadAfnanChart(); loadAfnanTags(); afLoad('ig'); afLoad('tk'); }
-  if(view === 'local') { loadGlobal(); loadLocalChart(); loadNicheChart(); loadCountryChart(); sjLoad(); }
+  if(view === 'creator') {
+    // For creator view: load chart data first (it updates creatorOutreachData), then stats
+    loadCreatorOutreachChart().then(() => { loadGlobal(); });
+    cLoad();
+  } else {
+    // For all other views: silently load outreach totals so global KPIs stay accurate
+    pollCreatorOutreach().then(() => {
+      loadGlobal();
+      if(view === 'brand')  { loadBrandOutreachChart(); bLoad(); }
+      if(view === 'afnan')  { loadAfnanChart(); loadAfnanTags(); afLoad('ig'); afLoad('tk'); }
+      if(view === 'local')  { loadLocalChart(); loadNicheChart(); loadCountryChart(); sjLoad(); }
+    });
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -134,6 +216,12 @@ async function loadGlobal() {
     const r = await fetch(`/api/overview?_=${Date.now()}${getDateParams()}`);
     if(r.status===401) { window.location.href='/'; return; }
     const d = await r.json();
+
+    // Server may return { error: 'warming up' } before GLOBAL_STATE is populated
+    if (!d || !d.cloud || !d.local) {
+      console.warn('Overview not ready yet, will retry on next poll.');
+      return;
+    }
 
     const hist = typeof getFilteredCreatorOutreach === 'function' ? getFilteredCreatorOutreach() : { sent: 0, replies: 0, signups: 0, social: 0, email: 0 };
     const histBrands = typeof getFilteredBrandOutreach === 'function' ? getFilteredBrandOutreach() : { sent: 0, replies: 0 };
@@ -176,40 +264,33 @@ async function loadGlobal() {
        const s = d.stats;
        const vHist = view === 'creator' ? hist : { sent: 0, replies: 0, signups: 0, social: 0, email: 0 };
 
-       const cUsers = s.creatorCloud + s.creatorSanj;
-       const cTotal = s.creatorCloud + s.creatorSanj;
-       
-       const cCloudSentWithHist = s.creatorCloudSent + vHist.sent;
-       const cCloudRepWithHist = s.creatorCloudRep + vHist.replies;
-       
-       const cSent = cCloudSentWithHist + s.creatorSanjSent;
-       const cRep = cCloudRepWithHist + s.creatorSanjRep;
-       
-       // Real-time Aggregation for Top Cards (History + Live API data)
-       const displaySent = cSent;
-       const displayRep = cRep;
-       
-       animateVal('c-total', displaySent);
-       animateVal('c-replied', displayRep);
-       
-       const replyRateStr = displaySent > 0 ? ((displayRep / displaySent) * 100).toFixed(1) + '%' : '0%';
-       const rateEl = document.getElementById('c-reply-rate');
-       if (rateEl) {
-           rateEl.innerText = replyRateStr;
-           rateEl.dataset.val = replyRateStr; // Stop any trailing animation conflicts
-       }
-       
-       animateVal('c-cloud-em', s.creatorCloud);
-       animateVal('c-local-em', s.creatorSanj);
-       animateVal('c-cloud-sent', cCloudSentWithHist);
-       animateVal('c-local-sent', s.creatorSanjSent);
-       animateVal('c-cloud-rep', cCloudRepWithHist);
-       animateVal('c-local-rep', s.creatorSanjRep);
+       // ── Top KPI cards come 100% from Google Sheet tracking data ──
+       // (The scraper email counts appear in the Afnan/Sanjeev breakdown below)
+       const totalSent    = vHist.sent    || 0;
+       const totalReplies = vHist.replies || 0;
+       const replyRateStr = totalSent > 0 ? ((totalReplies / totalSent) * 100).toFixed(1) + '%' : '0%';
 
-       // Update new Signup Metrics dynamically (Signups come from history since no live API has signups currently, but if there's any we can add it later)
+       animateVal('c-total',        totalSent);
+       animateVal('c-replied',      totalReplies);
        animateVal('c-signup-total', vHist.signups || 0);
-       animateVal('c-signup-social', vHist.social || 0);
-       animateVal('c-signup-email', vHist.email || 0);
+       animateVal('c-signup-social', vHist.social  || 0);
+       animateVal('c-signup-email',  vHist.email   || 0);
+
+       const rateEl = document.getElementById('c-reply-rate');
+       if (rateEl) { rateEl.innerText = replyRateStr; rateEl.dataset.val = replyRateStr; }
+
+       // ── Scraper breakdown cards (emails collected by each scraper) ──
+       const cCloudSentWithHist = s.creatorCloudSent + vHist.sent;
+       const cCloudRepWithHist  = s.creatorCloudRep  + vHist.replies;
+       const cSanjSent = s.creatorSanjSent;
+       const cSanjRep  = s.creatorSanjRep;
+
+       animateVal('c-cloud-em',   s.creatorCloud);
+       animateVal('c-local-em',   s.creatorSanj);
+       animateVal('c-cloud-sent', cCloudSentWithHist);
+       animateVal('c-local-sent', cSanjSent);
+       animateVal('c-cloud-rep',  cCloudRepWithHist);
+       animateVal('c-local-rep',  cSanjRep);
 
        const bUsers = s.brandCloud + s.brandSanj;
        const bTotal = s.brandCloud + s.brandSanj;
@@ -332,7 +413,9 @@ async function loadGlobalView(type, state) {
 window.afLoad = async function(plat) {
   try {
     const state = plat === 'ig' ? afIgState : afTkState;
-    const r = await fetch(`/api/cloud/emails?platform=${plat}&page=${state.p}&status=all&q=${getDateParams()}`);
+    const dp = getDateParams();
+    const r = await fetch(`/api/cloud/emails?platform=${plat}&page=${state.p}&status=all&q=&${dp ? dp.slice(1) : ''}`);
+
     const d = await r.json();
     const statEl = document.getElementById(`af-${plat}-stats`);
     if(statEl) statEl.innerText = `${d.total} records`;
@@ -384,7 +467,8 @@ async function loadAfnanTags() {
 // ═══════════════════════════════════════════
 window.sjLoad = async function() {
   try {
-    const r = await fetch(`/api/local/emails?page=${sjState.p}&status=all&q=${getDateParams()}`);
+    const dp = getDateParams();
+    const r = await fetch(`/api/local/emails?page=${sjState.p}&status=all&q=&${dp ? dp.slice(1) : ''}`);
     const d = await r.json();
     const statEl = document.getElementById('sj-table-stats');
     if(statEl) statEl.innerText = `${d.total} records`;
@@ -541,6 +625,10 @@ function loadBrandOutreachChart() {
 
 let creatorChart = null;
 
+// ── Live outreach data loaded from Google Sheets via /api/creator-outreach ──
+let creatorOutreachData = [];
+
+// Legacy placeholder — no longer used (replaced by live API)
 const creatorOutreachHistory = [
   { date: "02/03", sent: 500, replies: 11, signups: 11, social: 6, email: 5 },
   { date: "03/03", sent: 1000, replies: 33, signups: 8, social: 5, email: 3 },
@@ -578,103 +666,145 @@ const creatorOutreachHistory = [
   { date: "04/04", sent: 965, replies: null, signups: null, social: null, email: null }
 ];
 
+// Returns totals already pre-filtered by API — just sum the cached data
 function getFilteredCreatorOutreach() {
-  if (typeof creatorOutreachHistory === 'undefined') return { sent: 0, replies: 0, signups: 0, social: 0, email: 0 };
-  let sent = 0;
-  let replies = 0;
-  let signups = 0;
-  let social = 0;
-  let email = 0;
-  creatorOutreachHistory.forEach(item => {
-    const parts = item.date.split('/');
-    if (parts.length === 2) {
-      const itemDateStr = `2026-${parts[1]}-${parts[0]}`;
-      let include = true;
-      if (currentRange && currentRange.start && itemDateStr < currentRange.start) include = false;
-      if (currentRange && currentRange.end && itemDateStr > currentRange.end) include = false;
-      if (include) {
-        sent += item.sent || 0;
-        replies += item.replies || 0;
-        signups += item.signups || 0;
-        social += item.social || 0;
-        email += item.email || 0;
-      }
-    }
-  });
-  return { sent, replies, signups, social, email };
+  return creatorOutreachData.reduce((acc, d) => ({
+    sent:    acc.sent    + (d.sent    || 0),
+    replies: acc.replies + (d.replies || 0),
+    signups: acc.signups + (d.signups || 0),
+    social:  acc.social  + (d.social  || 0),
+    email:   acc.email   + (d.email   || 0),
+  }), { sent: 0, replies: 0, signups: 0, social: 0, email: 0 });
 }
 
-function loadCreatorOutreachChart() {
-  if (creatorChart) creatorChart.destroy();
-  
-  const labels = creatorOutreachHistory.map(d => d.date);
-  const sentData = creatorOutreachHistory.map(d => d.sent);
-  const repliesData = creatorOutreachHistory.map(d => d.replies);
+async function loadCreatorOutreachChart() {
+  try {
+    const dp = getDateParams();
+    const url = `/api/creator-outreach${dp ? '?' + dp.slice(1) : ''}`;
+    const data = await fetch(url).then(r => r.json());
+    creatorOutreachData = Array.isArray(data) ? data : [];
 
-  // Evaluate Trends for DOM Insights
-  let peakSent = 0, peakSentDay = "N/A", bestConv = 0, bestConvDay = "N/A";
-  let recentTotal = 0;
-  creatorOutreachHistory.forEach(d => {
-      // Find peak outreach day
-      if(d.sent > peakSent) { peakSent = d.sent; peakSentDay = d.date; }
-      // Find best conversion day (highest total signups)
-      if((d.signups || 0) > bestConv) { bestConv = (d.signups || 0); bestConvDay = d.date; }
-  });
-  
-  const insightEl = document.getElementById('trend-insight-text');
-  if(insightEl) {
-      insightEl.innerHTML = `Peak volume was a massive <strong class='text-white'>${peakSent.toLocaleString()}</strong> emails on <strong class='text-indigo-400'>${peakSentDay}</strong>. The highest conversion happened on <strong class='text-teal-400'>${bestConvDay}</strong> with <strong class='text-white'>${bestConv} total signups</strong>! Late March (29-31) saw a massive spike in engagement.`;
-  }
+    // ── Directly update all KPI cards from Tracking sheet columns ──
+    // Emails Sent → Total Emails, Inbox Replies → Replies, etc.
+    const totals = creatorOutreachData.reduce((acc, d) => ({
+      sent:    acc.sent    + (d.sent    || 0),
+      replies: acc.replies + (d.replies || 0),
+      signups: acc.signups + (d.signups || 0),
+      social:  acc.social  + (d.social  || 0),
+      email:   acc.email   + (d.email   || 0),
+    }), { sent: 0, replies: 0, signups: 0, social: 0, email: 0 });
 
-  creatorChart = createArchitecturalChart('chartCreatorOutreach', 'bar', labels, [
-    {
-      type: 'line',
-      label: 'Replies',
-      data: repliesData,
-      borderColor: '#34d399',
-      backgroundColor: 'transparent',
-      borderWidth: 3,
-      tension: 0.4,
-      spanGaps: true,
-      pointBackgroundColor: '#10b981',
-      pointBorderColor: '#fff',
-      pointRadius: 4,
-      pointHoverRadius: 6,
-      yAxisID: 'y1'
-    },
-    {
-      type: 'bar',
-      label: 'Emails Sent',
-      data: sentData,
-      backgroundColor: createGradient('chartCreatorOutreach', '#6366f1'),
-      hoverBackgroundColor: '#818cf8',
-      borderColor: '#6366f1',
-      borderWidth: 1,
-      borderRadius: 4,
-      yAxisID: 'y'
+    animateVal('c-total',         totals.sent);
+    animateVal('c-replied',       totals.replies);
+    animateVal('c-signup-total',  totals.signups);
+    animateVal('c-signup-social', totals.social);
+    animateVal('c-signup-email',  totals.email);
+    const rr = totals.sent > 0 ? ((totals.replies / totals.sent) * 100).toFixed(1) + '%' : '0%';
+    const rrEl = document.getElementById('c-reply-rate');
+    if (rrEl) { rrEl.innerText = rr; rrEl.dataset.val = rr; }
+
+    if (creatorChart) { creatorChart.destroy(); creatorChart = null; }
+
+    if (creatorOutreachData.length === 0) {
+      showChartEmptyState('chartCreatorOutreach', 'No outreach data — check your Google Sheet is shared with the service account');
+      const insightEl = document.getElementById('trend-insight-text');
+      if (insightEl) insightEl.innerHTML = 'No outreach data found for the selected period.';
+      return;
     }
-  ], {
-    animation: { duration: 1500, easing: 'easeOutQuart' },
-    interaction: {
-      mode: 'index',
-      intersect: false,
-    },
-    plugins: {
+    clearChartEmptyState('chartCreatorOutreach');
+
+    // ── Trend Insights ──
+    let peakSent = 0, peakSentDay = 'N/A', bestConv = 0, bestConvDay = 'N/A';
+    creatorOutreachData.forEach(d => {
+      if ((d.sent || 0) > peakSent) { peakSent = d.sent; peakSentDay = d.label; }
+      if ((d.signups || 0) > bestConv) { bestConv = d.signups; bestConvDay = d.label; }
+    });
+    const insightEl = document.getElementById('trend-insight-text');
+    if (insightEl) {
+      insightEl.innerHTML = `Peak volume was a massive <strong class='text-white'>${(peakSent||0).toLocaleString()}</strong> emails on <strong class='text-indigo-400'>${peakSentDay}</strong>. Best conversion: <strong class='text-teal-400'>${bestConvDay}</strong> with <strong class='text-white'>${bestConv || 0} total signups</strong>.`;
+    }
+
+    const labels      = creatorOutreachData.map(d => d.label);
+    const sentData    = creatorOutreachData.map(d => d.sent);
+    const repliesData = creatorOutreachData.map(d => d.replies);
+
+    creatorChart = createArchitecturalChart('chartCreatorOutreach', 'bar', labels, [
+      {
+        type: 'line',
+        label: 'Replies',
+        data: repliesData,
+        borderColor: '#34d399',
+        backgroundColor: 'transparent',
+        borderWidth: 3,
+        tension: 0.4,
+        spanGaps: true,
+        pointBackgroundColor: '#10b981',
+        pointBorderColor: '#fff',
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        yAxisID: 'y1'
+      },
+      {
+        type: 'bar',
+        label: 'Emails Sent',
+        data: sentData,
+        backgroundColor: createGradient('chartCreatorOutreach', '#6366f1'),
+        hoverBackgroundColor: '#818cf8',
+        borderColor: '#6366f1',
+        borderWidth: 1,
+        borderRadius: 4,
+        yAxisID: 'y'
+      }
+    ], {
+      animation: { duration: 1500, easing: 'easeOutQuart' },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
         tooltip: {
-            callbacks: {
-                label: function(ctx) {
-                    let val = ctx.raw;
-                    if (val === null || val === undefined) return ` ${ctx.dataset.label}: -`;
-                    return ` ${ctx.dataset.label}: ${val.toLocaleString()}`;
-                }
+          callbacks: {
+            label: function(ctx) {
+              const val = ctx.raw;
+              if (val === null || val === undefined) return ` ${ctx.dataset.label}: -`;
+              return ` ${ctx.dataset.label}: ${val.toLocaleString()}`;
             }
+          }
         }
-    },
-    scales: {
-      y: { type: 'linear', position: 'left', beginAtZero: true },
-      y1: { type: 'linear', position: 'right', beginAtZero: true, grid: { drawOnChartArea: false } }
-    }
-  });
+      },
+      scales: {
+        y:  { type: 'linear', position: 'left',  beginAtZero: true },
+        y1: { type: 'linear', position: 'right', beginAtZero: true, grid: { drawOnChartArea: false } }
+      }
+    });
+  } catch(e) {
+    console.error('loadCreatorOutreachChart error:', e);
+    showChartEmptyState('chartCreatorOutreach', 'Failed to load outreach data');
+  }
+}
+
+function showChartEmptyState(canvasId, message = 'No data available yet') {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const parent = canvas.parentElement;
+  if (!parent) return;
+  // Remove any existing empty state
+  const existing = parent.querySelector('.chart-empty-state');
+  if (existing) existing.remove();
+  const el = document.createElement('div');
+  el.className = 'chart-empty-state';
+  el.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;pointer-events:none;';
+  el.innerHTML = `<div style="font-size:2.5rem;opacity:0.25;">📊</div><p style="font-size:12px;font-weight:600;color:rgba(161,161,170,0.6);text-align:center;letter-spacing:0.05em;">${message}</p>`;
+  parent.style.position = 'relative';
+  parent.appendChild(el);
+  canvas.style.opacity = '0';
+}
+
+function clearChartEmptyState(canvasId) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const parent = canvas.parentElement;
+  if (!parent) return;
+  const existing = parent.querySelector('.chart-empty-state');
+  if (existing) existing.remove();
+  canvas.style.opacity = '1';
 }
 
 async function loadAfnanChart() {
@@ -684,9 +814,16 @@ async function loadAfnanChart() {
       fetch('/api/afnan-tk/daily').then(r => r.json())
     ]);
 
-    const labels = igRes.map(d => d.label);
-    if(afnanChart) afnanChart.destroy();
+    if(afnanChart) { afnanChart.destroy(); afnanChart = null; }
 
+    const hasData = igRes.some(d => d.emails > 0) || tkRes.some(d => d.emails > 0);
+    if (!hasData) {
+      showChartEmptyState('chartAfnan', 'Collecting data — check back soon');
+      return;
+    }
+    clearChartEmptyState('chartAfnan');
+
+    const labels = igRes.map(d => d.label);
     afnanChart = createArchitecturalChart('chartAfnan', 'bar', labels, [
       {
         label: 'IG Emails',
@@ -701,37 +838,66 @@ async function loadAfnanChart() {
         borderRadius: 6,
       }
     ]);
-  } catch(e) { console.error('loadAfnanChart error:', e); }
+  } catch(e) {
+    console.error('loadAfnanChart error:', e);
+    showChartEmptyState('chartAfnan', 'Failed to load chart data');
+  }
 }
 
 async function loadLocalChart() {
   try {
-    const data = await fetch('/api/local/daily').then(r => r.json());
-    const labels = data.map(d => d.label);
-    if(localChart) localChart.destroy();
+    const res = await fetch('/api/local/daily');
+    if (!res.ok) throw new Error('API error ' + res.status);
+    const data = await res.json();
 
+    if(localChart) { localChart.destroy(); localChart = null; }
+
+    if (!Array.isArray(data) || data.length === 0) {
+      showChartEmptyState('chartLocal', 'No collection data yet — start the local scraper');
+      return;
+    }
+
+    const hasData = data.some(d => (d.discovered || 0) > 0 || (d.processed || 0) > 0);
+    if (!hasData) {
+      showChartEmptyState('chartLocal', 'No activity in the last 14 days');
+      return;
+    }
+    clearChartEmptyState('chartLocal');
+
+    const labels = data.map(d => d.label);
     localChart = createArchitecturalChart('chartLocal', 'bar', labels, [
       {
         label: 'Users Discovered',
-        data: data.map(d => d.discovered),
+        data: data.map(d => d.discovered || 0),
         backgroundColor: '#f59e0b',
         borderRadius: 6,
       },
       {
         label: 'Emails Processed',
-        data: data.map(d => d.processed),
+        data: data.map(d => d.processed || 0),
         backgroundColor: '#fb923c',
         borderRadius: 6,
       }
     ]);
-  } catch(e) { console.error('loadLocalChart error:', e); }
+  } catch(e) {
+    console.error('loadLocalChart error:', e);
+    showChartEmptyState('chartLocal', 'Failed to load chart data');
+  }
 }
 
 async function loadNicheChart() {
   try {
-    const data = await fetch('/api/local/niches').then(r => r.json());
-    if(nicheChart) nicheChart.destroy();
-    if(data.length === 0) return;
+    const res = await fetch('/api/local/niches');
+    if (!res.ok) throw new Error('API error ' + res.status);
+    const data = await res.json();
+
+    if(nicheChart) { nicheChart.destroy(); nicheChart = null; }
+
+    if (!Array.isArray(data) || data.length === 0) {
+      showChartEmptyState('chartNiches', 'No niche data yet');
+      return;
+    }
+    clearChartEmptyState('chartNiches');
 
     nicheChart = createArchitecturalChart('chartNiches', 'pie', data.map(d => d.name), [
       {
@@ -743,14 +909,25 @@ async function loadNicheChart() {
         borderWidth: 0,
       }
     ]);
-  } catch(e) { console.error('loadNicheChart error:', e); }
+  } catch(e) {
+    console.error('loadNicheChart error:', e);
+    showChartEmptyState('chartNiches', 'Failed to load niche data');
+  }
 }
 
 async function loadCountryChart() {
   try {
-    const data = await fetch('/api/local/countries').then(r => r.json());
-    if(countryChart) countryChart.destroy();
-    if(data.length === 0) return;
+    const res = await fetch('/api/local/countries');
+    if (!res.ok) throw new Error('API error ' + res.status);
+    const data = await res.json();
+
+    if(countryChart) { countryChart.destroy(); countryChart = null; }
+
+    if (!Array.isArray(data) || data.length === 0) {
+      showChartEmptyState('chartCountries', 'No country data yet');
+      return;
+    }
+    clearChartEmptyState('chartCountries');
 
     countryChart = createArchitecturalChart('chartCountries', 'bar', data.map(d => d.name), [
       {
@@ -763,7 +940,10 @@ async function loadCountryChart() {
         indexAxis: 'y',
         plugins: { legend: { display: false } }
     });
-  } catch(e) { console.error('loadCountryChart error:', e); }
+  } catch(e) {
+    console.error('loadCountryChart error:', e);
+    showChartEmptyState('chartCountries', 'Failed to load country data');
+  }
 }
 
 function createGradient(canvasId, color) {

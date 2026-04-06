@@ -2,10 +2,12 @@
    SCRAPER COMMAND CENTER v2.1 — server.js
    Split Cloud + Local Backends
    ============================================================ */
+require('dotenv').config();
 const express      = require('express');
 const fs           = require('fs');
 const path         = require('path');
 const os           = require('os');
+const crypto       = require('crypto');
 const cookieParser = require('cookie-parser');
 const { parse }    = require('csv-parse/sync');
 const { MongoClient } = require('mongodb');
@@ -14,10 +16,13 @@ const { google }     = require('googleapis');
 const app = express();
 app.use(express.json());
 app.use(cookieParser());
-app.use('/public', express.static(path.join(__dirname, 'public')));
+app.use('/public', express.static(path.join(__dirname, 'public'), { maxAge: 0, etag: false }));
 
-// ─── Auth ───
-const CREDENTIALS = { username: 'v1ra@admin', password: 'ash' };
+// ─── Auth (credentials from .env) ───
+const CREDENTIALS = {
+  username: process.env.AUTH_USERNAME || 'v1ra@admin',
+  password: process.env.AUTH_PASSWORD || 'ash'
+};
 const SESSIONS = new Set();
 
 function authMiddleware(req, res, next) {
@@ -29,7 +34,7 @@ function authMiddleware(req, res, next) {
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   if (username === CREDENTIALS.username && password === CREDENTIALS.password) {
-    const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const token = crypto.randomBytes(32).toString('hex');
     SESSIONS.add(token);
     res.cookie('session', token, { httpOnly: true, maxAge: 86400000 * 7 });
     return res.json({ ok: true });
@@ -53,7 +58,8 @@ const TK_CSV       = process.env.TK_CSV       || path.join(SCRAPPER_DIR, 'tiktok
 const IG_LOG       = process.env.IG_LOG       || path.join(SCRAPPER_DIR, 'logs', 'instagram-out.log');
 const TK_LOG       = process.env.TK_LOG       || path.join(SCRAPPER_DIR, 'logs', 'tiktok-out.log');
 const OUTREACH_LOG = process.env.OUTREACH_LOG || path.join(SCRAPPER_DIR, 'outreach_log.json');
-const MONGO_URI    = process.env.MONGO_URI    || 'mongodb+srv://scrapper:scraper@v1ra.jt3fzns.mongodb.net/sanjeevo';
+const MONGO_URI    = process.env.MONGO_URI;
+if (!MONGO_URI) { console.error('❌ MONGO_URI is not set in .env'); process.exit(1); }
 const PORT         = process.env.PORT         || 3000;
 const SESSION_DIR  = SCRAPPER_DIR;
 
@@ -94,6 +100,10 @@ async function syncGoogleSheets() {
   const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE || path.join(SCRAPPER_DIR, 'service-account-key.json');
   const tiktokSheet = process.env.GOOGLE_SHEETS_TIKTOK_SHEET || 'TikTok';
   const instagramSheet = process.env.GOOGLE_SHEETS_INSTAGRAM_SHEET || 'Instagram';
+  // Strip leading/trailing whitespace from env values
+  const cleanSpreadsheetId = spreadsheetId.trim();
+  const cleanTiktokSheet = tiktokSheet.trim();
+  const cleanInstagramSheet = instagramSheet.trim();
 
   if (!fs.existsSync(keyFile)) {
     console.warn('⚠️ Google Sheets key file not found:', keyFile);
@@ -108,7 +118,7 @@ async function syncGoogleSheets() {
     const sheets = google.sheets({ version: 'v4', auth });
 
     const fetchSheet = async (title) => {
-      const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${title}'!A:Z` });
+      const res = await sheets.spreadsheets.values.get({ spreadsheetId: cleanSpreadsheetId, range: `'${title}'!A:Z` });
       const rows = res.data.values || [];
       if (rows.length < 2) return [];
       const headers = rows[0];
@@ -123,8 +133,8 @@ async function syncGoogleSheets() {
 
     console.log('📡 Fetching from Google Sheets...');
     const [tk, ig] = await Promise.all([
-      fetchSheet(tiktokSheet).catch(e => { console.error('TK Sheet Error:', e.message); return []; }),
-      fetchSheet(instagramSheet).catch(e => { console.error('IG Sheet Error:', e.message); return []; })
+      fetchSheet(cleanTiktokSheet).catch(e => { console.error('TK Sheet Error:', e.message); return []; }),
+      fetchSheet(cleanInstagramSheet).catch(e => { console.error('IG Sheet Error:', e.message); return []; })
     ]);
     console.log(`✅ Sheets synced: ${tk.length} TikTok, ${ig.length} Instagram`);
     
@@ -136,15 +146,86 @@ async function syncGoogleSheets() {
   }
 }
 
+// ─── OUTREACH GOOGLE SHEET (Email Marketing Tracker) ───
+// No internal cache — this sheet is small and manually updated.
+// refreshGlobalData() runs every 60s, so changes appear within ~1 minute.
+let outreachSheetCache = { data: [] }; // kept only as error fallback
+
+async function syncOutreachSheet() {
+  const spreadsheetId = (process.env.GOOGLE_SHEETS_OUTREACH_SPREADSHEET_ID || '').trim();
+  if (!spreadsheetId) { console.warn('⚠️ GOOGLE_SHEETS_OUTREACH_SPREADSHEET_ID not set'); return outreachSheetCache.data; }
+
+  const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE || path.join(SCRAPPER_DIR, 'service-account-key.json');
+  if (!fs.existsSync(keyFile)) return outreachSheetCache.data;
+
+  try {
+    const auth = new google.auth.GoogleAuth({ keyFile, scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'] });
+    const sheets = google.sheets({ version: 'v4', auth });
+    const sheetName = (process.env.GOOGLE_SHEETS_OUTREACH_TRACKING_SHEET || 'Tracking').trim();
+
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${sheetName}'!A:Z` });
+    const rows = res.data.values || [];
+    if (rows.length < 2) return outreachSheetCache.data;
+
+    const headers = rows[0];
+    // Log headers and first row so we can diagnose column name mismatches
+    console.log('📋 Outreach sheet headers:', JSON.stringify(headers));
+    if (rows[1]) console.log('📋 Outreach sheet row 1 raw:', JSON.stringify(rows[1]));
+    const parseNum = (v) => {
+      if (v === null || v === undefined || String(v).trim() === '' || String(v).trim() === '-') return null;
+      const n = parseInt(String(v).replace(/,/g, '').trim());
+      return isNaN(n) ? null : n;
+    };
+
+    const processed = rows.slice(1).map(row => {
+      const obj = {};
+      headers.forEach((h, i) => { if (h) obj[h.trim()] = row[i] !== undefined ? row[i] : ''; });
+
+      // Date column may be named "Column 1", "Date", or similar — fall back to first column value
+      const rawDate = String(
+        obj['Date'] || obj['date'] || obj['Column 1'] || obj['column 1'] ||
+        (row[0] !== undefined ? row[0] : '')
+      ).trim();
+
+      // Skip empty rows, summary rows like "Total", or anything that isn't a date
+      if (!rawDate || !/\d/.test(rawDate) || /total/i.test(rawDate)) return null;
+      const parts = rawDate.split('/');
+      if (parts.length !== 3) return null;
+      const [dd, mm, yyyy] = parts;
+      if (!dd || !mm || !yyyy || yyyy.length !== 4) return null;
+
+      return {
+        date:    `${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`,
+        label:   `${dd.padStart(2,'0')}/${mm.padStart(2,'0')}`,
+        day:     obj['Day'] || '',
+        sent:    parseNum(obj['Emails Sent']),
+        replies: parseNum(obj['Inbox Replies'] || obj['Replies']),
+        signups: parseNum(obj['Total Signups'] || obj['Signups']),
+        social:  parseNum(obj['Signup with Socials'] || obj['Social']),
+        email:   parseNum(obj['Signup with Email only'] || obj['Email Signups']),
+      };
+    }).filter(Boolean).sort((a, b) => a.date.localeCompare(b.date));
+
+    console.log(`✅ Outreach Sheet synced: ${processed.length} rows from “${sheetName}”`);
+    outreachSheetCache = { data: processed };
+    return processed;
+  } catch (e) {
+    console.error('❌ Outreach Sheet Sync Error:', e.message);
+    return outreachSheetCache.data;
+  }
+}
+
 async function refreshGlobalData() {
   const start = Date.now();
   console.log('🔄 Refreshing Global Data (including Sheets)...');
   try {
-    const [igCSV, tkCSV, { tk: tkSheet, ig: igSheet }] = await Promise.all([
+    const [igCSV, tkCSV, { tk: tkSheet, ig: igSheet }, outreachHistory] = await Promise.all([
       Promise.resolve(readCSV(IG_CSV, 'ig')),
       Promise.resolve(TK_CSV ? readCSV(TK_CSV, 'tk') : []),
-      syncGoogleSheets()
+      syncGoogleSheets(),
+      syncOutreachSheet()
     ]);
+
 
     // Deduplicate: Sheets take priority over CSV, key is Username or Email (fallback)
     const dedupe = (csv, sheet) => {
@@ -231,7 +312,7 @@ async function refreshGlobalData() {
       if(isToday) inc(ovToday);
       if(isYesterday) inc(ovYesterday);
 
-      const tag = r['Hashtag']?.trim();
+      const tag = r['Hashtag']?.trim() || r['hashtag']?.trim() || r['Tag']?.trim() || '';
       if (tag) tagCounts[tag] = (tagCounts[tag] || 0) + 1;
 
       const em = r['Email']?.trim();
@@ -264,6 +345,7 @@ async function refreshGlobalData() {
           platform: platName, username: r['Username'] || r.username || '', email: em, 
           followers: r['Followers'] || r.followerCount || r.followers || '', scrapedAt, 
           status: isReplied ? 'replied' : (isSent ? 'sent' : 'pending'), type,
+          hashtag: tag || '',
           _ts: new Date(scrapedAt || 0).getTime()
         });
       }
@@ -275,8 +357,8 @@ async function refreshGlobalData() {
     // 2. Process MongoDB Data
     try {
       const db = await getMongo();
-      const sjRows = await db.collection('accountdetails').find({ emails: { $exists: true, $not: { $size: 0 } } })
-        .project({ username: 1, emails: 1, followerCount: 1, followers: 1, createdAt: 1, isBusinessAccount: 1 })
+      const sjRows = await db.collection('accountdetails').find({ 'emails.0': { $exists: true } })
+        .project({ username: 1, emails: 1, followerCount: 1, followers: 1, createdAt: 1, isBusinessAccount: 1, contentType: 1, niche: 1 })
         .toArray();
       
       const dayStart = new Date(todayStr + 'T00:00:00Z');
@@ -302,10 +384,13 @@ async function refreshGlobalData() {
         
         const isToday = scrapedAt.startsWith(todayStr);
         const isYesterday = scrapedAt.startsWith(yesterdayStr);
-        const isBrand = r.isBusinessAccount;
 
-        const emailObj = Array.isArray(r.emails) ? r.emails[0] : null;
-        const email = emailObj?.value || emailObj || '';
+        // Support both new format (plain strings) and old format ({ value: '...' })
+        const emailRaw = Array.isArray(r.emails) ? r.emails[0] : null;
+        const email = typeof emailRaw === 'string' ? emailRaw.trim() : (emailRaw?.value || '').trim();
+        
+        // Brand detection: local scraper (Sanjeev) is strictly configured for Creators
+        const isBrand = false;
         
         if (email) {
           const record = outreach[email.toLowerCase()];
@@ -368,8 +453,55 @@ async function refreshGlobalData() {
       cloud_tk: cloudProcessedTk,
       global_creator,
       global_brand,
-      local_processed: localProcessed
+      local_processed: localProcessed,
+      creator_outreach: outreachHistory   // ← live from Google Sheets
     };
+
+    // 4. Cache Heavy Aggregations (Daily, Niches, Countries)
+    try {
+      const db = await getMongo();
+      const numDays = lastNDays(14);
+      const st = numDays[0];
+      const en = numDays[numDays.length - 1];
+
+      const discoveredAgg = await db.collection('discoveredusers').aggregate([
+        { $match: { _id: { $gte: require('mongodb').ObjectId.createFromTime(Math.floor(new Date(st + 'T00:00:00Z').getTime() / 1000)), $lte: require('mongodb').ObjectId.createFromTime(Math.floor(new Date(en + 'T23:59:59Z').getTime() / 1000)) } } },
+        { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: { $toDate: '$_id' } } }, count: { $sum: 1 } } }
+      ]).toArray();
+
+      const processedAgg = await db.collection('accountdetails').aggregate([
+        { $match: { createdAt: { $gte: new Date(st + 'T00:00:00Z'), $lte: new Date(en + 'T23:59:59Z') }, 'emails.0': { $exists: true } } },
+        { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, count: { $sum: 1 } } }
+      ]).toArray();
+
+      const discMap = {}; discoveredAgg.forEach(r => discMap[r._id] = r.count);
+      const procMap = {}; processedAgg.forEach(r => procMap[r._id] = r.count);
+
+      GLOBAL_STATE.local_daily = numDays.map(d => ({
+        date: d,
+        label: new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+        discovered: discMap[d] || 0,
+        processed: procMap[d] || 0
+      }));
+
+      const n = await db.collection('accountdetails').aggregate([
+        { $match: { niche: { $exists: true, $nin: ['Unknown', '', null] } } },
+        { $group: { _id: '$niche', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 10 }
+      ]).toArray();
+      GLOBAL_STATE.local_niches = n.map(x => ({ name: x._id, value: x.count }));
+
+      const c = await db.collection('accountdetails').aggregate([
+        { $match: { country: { $exists: true, $nin: ['Unknown', '', null] } } },
+        { $group: { _id: "$country", count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 10 }
+      ]).toArray();
+      GLOBAL_STATE.local_countries = c.map(x => ({ name: x._id, value: x.count }));
+
+    } catch(err) { console.error('bg aggregation error:', err); }
+
     console.log(`✅ Global Data Refreshed in ${Date.now() - start}ms (Non-blocking)`);
   } catch (e) { console.error('refreshGlobalData error:', e); }
 }
@@ -486,25 +618,31 @@ app.get('/api/overview', authMiddleware, async (req, res) => {
     brandSanjRep: brand.filter(e => e.engine === 'Local Mongo' && e.status === 'replied').length,
   };
 
+  // For custom date ranges: ig/tk rows already only have emails (they were filtered by email presence)
+  // So ig.length == emails from IG in that range; accounts ≥ emails (we don't have a filtered accounts count easily)
+  // We use email counts as the best proxy for per-range sub-totals
+  const igEmails = ig.length;
+  const tkEmails = tk.length;
+  const localEmails = local.length;
   const overview = {
-    afnanIg: { accounts: ig.length, emails: ig.length }, // Approximation based on rows
-    afnanTk: { accounts: tk.length, emails: tk.length },
+    afnanIg: { accounts: igEmails, emails: igEmails },
+    afnanTk: { accounts: tkEmails, emails: tkEmails },
     cloud: { 
-      accounts: ig.length + tk.length, 
-      emails: ig.length + tk.length, 
+      accounts: igEmails + tkEmails, 
+      emails: igEmails + tkEmails, 
       sent: stats.creatorCloudSent + stats.brandCloudSent, 
       replied: stats.creatorCloudRep + stats.brandCloudRep,
-      ig: ig.length, tk: tk.length 
+      ig: igEmails, tk: tkEmails 
     },
     local: { 
-      accounts: local.length, // approximation for custom range
-      emails: local.length, 
+      accounts: localEmails,
+      emails: localEmails, 
       sent: stats.creatorSanjSent + stats.brandSanjSent, 
       replied: stats.creatorSanjRep + stats.brandSanjRep, 
-      jobs: 0 // not applicable for range
+      jobs: 0
     },
-    totalEmails: ig.length + tk.length + local.length,
-    totalAccounts: ig.length + tk.length + local.length,
+    totalEmails: igEmails + tkEmails + localEmails,
+    totalAccounts: igEmails + tkEmails + localEmails,
     stats
   };
 
@@ -598,31 +736,45 @@ app.get('/api/global/emails', authMiddleware, async (req, res) => {
   res.json({ total: filtered.length, page: parseInt(page), limit, rows: filtered.slice((parseInt(page) - 1) * limit, parseInt(page) * limit) });
 });
 
-// ─── AFNAN IG ROUTES ───
+// ─── AFNAN IG ROUTES — Real daily data aggregated from Sheets cache ───
 app.get('/api/afnan-ig/daily', authMiddleware, (req, res) => {
   const days = lastNDays(14);
-  const igStatic = [120, 134, 110, 150, 165, 142, 180, 210, 205, 230, 255, 240, 280, 310];
-  const emStatic = [20, 25, 18, 28, 30, 25, 35, 40, 38, 45, 50, 45, 50, 60];
+  const ig = GLOBAL_STATE.cloud_ig || [];
 
-  res.json(days.map((d, i) => ({
-    date: d, 
+  const igByDay = {};
+  ig.forEach(r => {
+    const d = (r.scrapedAt || '').split('T')[0];
+    if (!igByDay[d]) igByDay[d] = { accounts: 0, emails: 0 };
+    igByDay[d].accounts++;
+    igByDay[d].emails++; // cloud_ig only contains records with emails
+  });
+
+  res.json(days.map(d => ({
+    date: d,
     label: new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
-    ig: igStatic[i] || 0, 
-    emails: emStatic[i] || 0
+    ig: igByDay[d]?.accounts || 0,
+    emails: igByDay[d]?.emails || 0
   })));
 });
 
-// ─── AFNAN TIKTOK ROUTES ───
+// ─── AFNAN TIKTOK ROUTES — Real daily data aggregated from Sheets cache ───
 app.get('/api/afnan-tk/daily', authMiddleware, (req, res) => {
   const days = lastNDays(14);
-  const tkStatic = [80, 95, 75, 105, 120, 115, 130, 150, 145, 170, 185, 190, 210, 235];
-  const emStatic = [15, 16, 14, 17, 22, 23, 20, 22, 22, 26, 28, 30, 35, 35];
+  const tk = GLOBAL_STATE.cloud_tk || [];
 
-  res.json(days.map((d, i) => ({
-    date: d, 
+  const tkByDay = {};
+  tk.forEach(r => {
+    const d = (r.scrapedAt || '').split('T')[0];
+    if (!tkByDay[d]) tkByDay[d] = { accounts: 0, emails: 0 };
+    tkByDay[d].accounts++;
+    tkByDay[d].emails++;
+  });
+
+  res.json(days.map(d => ({
+    date: d,
     label: new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
-    tk: tkStatic[i] || 0, 
-    emails: emStatic[i] || 0
+    tk: tkByDay[d]?.accounts || 0,
+    emails: tkByDay[d]?.emails || 0
   })));
 });
 
@@ -656,71 +808,58 @@ app.get('/api/cloud/tags', authMiddleware, (req, res) => {
   const { startDate, endDate } = req.query;
   if (!startDate && !endDate && GLOBAL_STATE.tags) return res.json(GLOBAL_STATE.tags);
   
-  // Custom range tags calculation
-  const allRows = [...GLOBAL_STATE.cloud_ig, ...GLOBAL_STATE.cloud_tk];
+  // Real tag filtering — hashtags are now stored on each record
+  const allRows = [...(GLOBAL_STATE.cloud_ig || []), ...(GLOBAL_STATE.cloud_tk || [])];
   const filtered = filterByDate(allRows, startDate, endDate);
   
-  // Re-calculate tags for range
   const tagCounts = {};
-  // Since we don't have original hashtags in the processed list (we should have added them!)
-  // I'll need to update refreshGlobalData to include hashtags if I want filtering to work perfectly.
-  // Actually, I'll just return all tags for now or a filtered subset if I update the records.
-  // Let's assume tags are global for now to keep it lightning fast, or just filter original tags
-  // Actually, tag filtering is important. Let's see if I added hashtags to records.
-  // I didn't. Let's fix that in refreshGlobalData too.
-  return res.json(GLOBAL_STATE.tags || []);
+  filtered.forEach(r => {
+    if (r.hashtag) tagCounts[r.hashtag] = (tagCounts[r.hashtag] || 0) + 1;
+  });
+  
+  const tags = Object.entries(tagCounts)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
+  
+  return res.json(tags);
 });
 
 
 // ─── LOCAL ROUTES ───
 app.get('/api/local/daily', authMiddleware, async (req, res) => {
-  const days = lastNDays(14);
-  try {
-    const db = await getMongo();
-    // In a real scenario, you'd aggregate this from your collections by date
-    // For now, we'll keep the static/simulated data but make it look like a bar chart dataset
-    const discStatic = [500, 550, 520, 600, 680, 650, 720, 800, 780, 850, 920, 900, 980, 1050];
-    const procStatic = [400, 440, 410, 480, 550, 520, 580, 650, 630, 700, 750, 730, 800, 860];
-
-    res.json(days.map((d, i) => ({
-      date: d,
-      label: new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
-      discovered: discStatic[i] || 0,
-      processed: procStatic[i] || 0
-    })));
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  res.json(GLOBAL_STATE.local_daily || []);
 });
 
 app.get('/api/local/niches', authMiddleware, async (req, res) => {
-  try {
-    const db = await getMongo();
-    const niches = await db.collection('accountdetails').aggregate([
-      { $match: { niche: { $exists: true, $ne: "Unknown", $ne: "" } } },
-      { $group: { _id: "$niche", count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 10 }
-    ]).toArray();
-    res.json(niches.map(n => ({ name: n._id, value: n.count })));
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  res.json(GLOBAL_STATE.local_niches || []);
 });
 
 app.get('/api/local/countries', authMiddleware, async (req, res) => {
-  try {
-    const db = await getMongo();
-    const countries = await db.collection('accountdetails').aggregate([
-      { $match: { country: { $exists: true, $ne: "Unknown", $ne: "" } } },
-      { $group: { _id: "$country", count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 10 }
-    ]).toArray();
-    res.json(countries.map(c => ({ name: c._id, value: c.count })));
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+  res.json(GLOBAL_STATE.local_countries || []);
+});
+
+// ─── CREATOR OUTREACH HISTORY (from Google Sheets Email Marketing Tracker) ───
+app.get('/api/creator-outreach', authMiddleware, (req, res) => {
+  const { startDate, endDate } = req.query;
+  let data = GLOBAL_STATE.creator_outreach || [];
+  if (startDate || endDate) {
+    data = data.filter(r => {
+      if (startDate && r.date < startDate) return false;
+      if (endDate   && r.date > endDate)   return false;
+      return true;
+    });
   }
+  res.json(data);
+});
+
+// ─── DEBUG: inspect raw parsed outreach data ───
+app.get('/api/debug-outreach', authMiddleware, (req, res) => {
+  const data = GLOBAL_STATE.creator_outreach || [];
+  res.json({
+    total_rows: data.length,
+    last_5: data.slice(-5),
+    all: data
+  });
 });
 
 app.get('/api/local/emails', authMiddleware, async (req, res) => {
@@ -743,19 +882,20 @@ app.get('/api/local/emails', authMiddleware, async (req, res) => {
 app.get('/api/export/local', authMiddleware, async (req, res) => {
   try {
     const db = await getMongo();
-    const dbRows = await db.collection('accountdetails').find({ emails: { $exists: true, $not: { $size: 0 } } }).sort({ createdAt: -1 }).toArray();
+    const dbRows = await db.collection('accountdetails').find({ 'emails.0': { $exists: true } }).sort({ createdAt: -1 }).toArray();
     const outreach = readOutreach();
     
     let csvStr = 'Platform,Username,Email,Followers,Type,Status,Scraped At\n';
     let count = 0;
     
     dbRows.forEach(r => {
-      const emailObj = Array.isArray(r.emails) ? r.emails[0] : null;
-      const email = emailObj?.value || (typeof emailObj === 'string' ? emailObj : '') || '';
+      const emailRaw = Array.isArray(r.emails) ? r.emails[0] : null;
+      const email = typeof emailRaw === 'string' ? emailRaw.trim() : (emailRaw?.value || '').trim();
       if (!email) return;
       const rec = outreach[email.toLowerCase()];
       const status = rec ? (rec.replied ? 'Replied' : 'Sent') : 'Pending';
-      const type = r.isBusinessAccount ? 'Brand' : 'Creator';
+      // Local scraper (Sanjeev) is strictly configured for Creators
+      const type = 'Creator';
       const followers = r.followerCount || r.followers || 0;
       const scrapedAt = r.createdAt ? new Date(r.createdAt).toISOString().slice(0,10) : '';
       csvStr += `Instagram,${r.username},${email},${followers},${type},${status},${scrapedAt}\n`;
