@@ -233,6 +233,9 @@ async function loadGlobal() {
     animateVal('g-cloud-sent', d.cloud.sent + hist.sent + histBrands.sent);
     animateVal('g-local-em', d.local.emails);
     animateVal('g-local-sent', d.local.sent);
+    if(d.ashTk && d.ashTk.emails !== undefined) {
+      animateVal('g-ash-em', d.ashTk.emails);
+    }
 
     if(view === 'afnan') {
       animateVal('af-ig-acc', d.afnanIg.accounts);
@@ -784,6 +787,26 @@ async function loadCreatorOutreachChart() {
         y1: { type: 'linear', position: 'right', beginAtZero: true, grid: { drawOnChartArea: false } }
       }
     });
+
+    // Populate Tracking Data Table
+    const tbEl = document.getElementById('tracking-tbody');
+    if (tbEl) {
+      // Show newest first
+      const reversedData = [...creatorOutreachData].reverse();
+      tbEl.innerHTML = reversedData.map(r => `<tr>
+        <td class="font-mono text-[13px] text-zinc-300 border-l border-l-white/5">${r.date}</td>
+        <td class="text-zinc-400 text-[13px]">${r.day ? esc(r.day) : '-'}</td>
+        <td class="font-mono text-[13px] text-white font-bold">${fmtNum(r.sent)}</td>
+        <td class="font-mono text-[13px] text-amber-400 font-bold">${fmtNum(r.replies)}</td>
+        <td class="font-mono text-[13px] text-teal-400 font-bold">${fmtNum(r.signups)}</td>
+        <td class="font-mono text-[13px] text-lime-400 font-bold">${fmtNum(r.social)}</td>
+        <td class="font-mono text-[13px] text-fuchsia-400 font-bold border-r border-r-white/5">${fmtNum(r.email)}</td>
+      </tr>`).join('') || `<tr><td colspan="7" class="text-center text-zinc-500 py-8 border-x border-x-white/5">No tracking data found</td></tr>`;
+      
+      const statEl = document.getElementById('tracking-stats');
+      if (statEl) statEl.innerText = `${creatorOutreachData.length} records`;
+    }
+
   } catch(e) {
     console.error('loadCreatorOutreachChart error:', e);
     showChartEmptyState('chartCreatorOutreach', 'Failed to load outreach data');
