@@ -80,11 +80,12 @@ let GLOBAL_STATE = {
   tags: null, 
   cloud_ig: [], 
   cloud_tk: [], 
+  ash_tk: [],
   global_creator: [], 
   global_brand: [] 
 };
 
-let sheetCache = { tk: [], ig: [], lastSync: 0 };
+let sheetCache = { tk: [], ig: [], ash_tk: [], lastSync: 0 };
 const SHEET_SYNC_INTERVAL = 15 * 60 * 1000; // 15 mins
 
 /**
@@ -93,21 +94,23 @@ const SHEET_SYNC_INTERVAL = 15 * 60 * 1000; // 15 mins
 async function syncGoogleSheets() {
   const now = Date.now();
   if (sheetCache.tk.length > 0 && (now - sheetCache.lastSync < SHEET_SYNC_INTERVAL)) {
-    return { tk: sheetCache.tk, ig: sheetCache.ig };
+    return { tk: sheetCache.tk, ig: sheetCache.ig, ash_tk: sheetCache.ash_tk };
   }
   
   const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID || '1Q8Pw_a88RRZZ9dpaREMAgf5b0RqRqSkQdaJsLGWivMw';
   const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE || path.join(SCRAPPER_DIR, 'service-account-key.json');
   const tiktokSheet = process.env.GOOGLE_SHEETS_TIKTOK_SHEET || 'TikTok';
+  const tiktokAshSheet = process.env.GOOGLE_SHEETS_TIKTOK_ASH_SHEET || 'TikTok(Ash)';
   const instagramSheet = process.env.GOOGLE_SHEETS_INSTAGRAM_SHEET || 'Instagram';
   // Strip leading/trailing whitespace from env values
   const cleanSpreadsheetId = spreadsheetId.trim();
   const cleanTiktokSheet = tiktokSheet.trim();
+  const cleanTiktokAshSheet = tiktokAshSheet.trim();
   const cleanInstagramSheet = instagramSheet.trim();
 
   if (!fs.existsSync(keyFile)) {
     console.warn('⚠️ Google Sheets key file not found:', keyFile);
-    return { tk: [], ig: [] };
+    return { tk: [], ig: [], ash_tk: [] };
   }
 
   try {
@@ -117,32 +120,61 @@ async function syncGoogleSheets() {
     });
     const sheets = google.sheets({ version: 'v4', auth });
 
-    const fetchSheet = async (title) => {
-      const res = await sheets.spreadsheets.values.get({ spreadsheetId: cleanSpreadsheetId, range: `'${title}'!A:Z` });
-      const rows = res.data.values || [];
+    // Cache sheet titles confirmed from metadata (needed for special-char names)
+    let confirmedTitles = null;
+    const resolveSheetTitle = async (title) => {
+      if (!confirmedTitles) {
+        const meta = await sheets.spreadsheets.get({ spreadsheetId: cleanSpreadsheetId, fields: 'sheets.properties' });
+        confirmedTitles = (meta.data.sheets || []).map(s => s.properties.title);
+      }
+      return confirmedTitles.find(t => t === title) || null;
+    };
+
+    const parseRows = (rows) => {
       if (rows.length < 2) return [];
       const headers = rows[0];
       return rows.slice(1).map(row => {
         const obj = {};
-        headers.forEach((h, i) => {
-            if (h && row[i] !== undefined) obj[h.trim()] = row[i];
-        });
+        headers.forEach((h, i) => { if (h && row[i] !== undefined) obj[h.trim()] = row[i]; });
         return obj;
       });
     };
 
+    const fetchSheet = async (title) => {
+      // For standard names (letters, digits, spaces, hyphens), use A1 notation
+      const isSimple = /^[A-Za-z0-9_ -]+$/.test(title);
+      let range;
+      if (isSimple) {
+        range = title.includes(' ') ? `'${title}'!A:Z` : `${title}!A:Z`;
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: cleanSpreadsheetId, range });
+        return parseRows(res.data.values || []);
+      } else {
+        // Names with special chars (parentheses etc.) — confirm via metadata then pass title only as range
+        const confirmed = await resolveSheetTitle(title);
+        if (!confirmed) {
+          console.warn(`Sheet "${title}" not found in spreadsheet`);
+          console.warn(`Available sheets are: ${confirmedTitles.join(', ')}`);
+          return [];
+        }
+        // Passing just the sheet title as the range returns all data for that sheet
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: cleanSpreadsheetId, range: confirmed });
+        return parseRows(res.data.values || []);
+      }
+    };
+
     console.log('📡 Fetching from Google Sheets...');
-    const [tk, ig] = await Promise.all([
+    const [tk, ig, ash_tk] = await Promise.all([
       fetchSheet(cleanTiktokSheet).catch(e => { console.error('TK Sheet Error:', e.message); return []; }),
-      fetchSheet(cleanInstagramSheet).catch(e => { console.error('IG Sheet Error:', e.message); return []; })
+      fetchSheet(cleanInstagramSheet).catch(e => { console.error('IG Sheet Error:', e.message); return []; }),
+      fetchSheet(cleanTiktokAshSheet).catch(e => { console.error('Ash TK Sheet Error:', e.message); return []; })
     ]);
-    console.log(`✅ Sheets synced: ${tk.length} TikTok, ${ig.length} Instagram`);
+    console.log(`✅ Sheets synced: ${tk.length} TikTok, ${ig.length} Instagram, ${ash_tk.length} TikTok(Ash)`);
     
-    sheetCache = { tk, ig, lastSync: Date.now() };
-    return { tk, ig };
+    sheetCache = { tk, ig, ash_tk, lastSync: Date.now() };
+    return { tk, ig, ash_tk };
   } catch (e) {
     console.error('❌ Google Sheets Sync Error:', e.message);
-    return { tk: sheetCache.tk, ig: sheetCache.ig };
+    return { tk: sheetCache.tk, ig: sheetCache.ig, ash_tk: sheetCache.ash_tk };
   }
 }
 
@@ -219,7 +251,7 @@ async function refreshGlobalData() {
   const start = Date.now();
   console.log('🔄 Refreshing Global Data (including Sheets)...');
   try {
-    const [igCSV, tkCSV, { tk: tkSheet, ig: igSheet }, outreachHistory] = await Promise.all([
+    const [igCSV, tkCSV, { tk: tkSheet, ig: igSheet, ash_tk: ashTkSheet }, outreachHistory] = await Promise.all([
       Promise.resolve(readCSV(IG_CSV, 'ig')),
       Promise.resolve(TK_CSV ? readCSV(TK_CSV, 'tk') : []),
       syncGoogleSheets(),
@@ -251,6 +283,7 @@ async function refreshGlobalData() {
     const createOverview = () => ({
       afnanIg: { accounts: 0, emails: 0 },
       afnanTk: { accounts: 0, emails: 0 },
+      ashTk: { accounts: 0, emails: 0 },
       cloud: { accounts: 0, emails: 0, sent: 0, replied: 0, ig: 0, tk: 0 },
       local: { accounts: 0, emails: 0, sent: 0, replied: 0, jobs: 0 },
       totalEmails: 0,
@@ -269,6 +302,7 @@ async function refreshGlobalData() {
     const tagCounts = {};
     const cloudProcessedIg = [];
     const cloudProcessedTk = [];
+    const ashProcessedTk = [];
     const localProcessed = [];
 
     // Helper to yield event loop every N items
@@ -302,10 +336,19 @@ async function refreshGlobalData() {
       const isCreator = String(type).toLowerCase().includes('creator');
       
       const inc = (ov) => {
-        if (platName === 'Instagram') ov.afnanIg.accounts++; else ov.afnanTk.accounts++;
-        ov.cloud.accounts++;
-        if (platName === 'Instagram') ov.cloud.ig++; else ov.cloud.tk++;
-        if (isCreator) ov.stats.creatorCloudUsers++; else ov.stats.brandCloudUsers++;
+        if (collector === cloudProcessedIg) {
+          ov.afnanIg.accounts++;
+          ov.cloud.accounts++;
+          ov.cloud.ig++;
+          if (isCreator) ov.stats.creatorCloudUsers++; else ov.stats.brandCloudUsers++;
+        } else if (collector === cloudProcessedTk) {
+          ov.afnanTk.accounts++;
+          ov.cloud.accounts++;
+          ov.cloud.tk++;
+          if (isCreator) ov.stats.creatorCloudUsers++; else ov.stats.brandCloudUsers++;
+        } else if (collector === ashProcessedTk) {
+          ov.ashTk.accounts++;
+        }
       };
 
       inc(ovAll);
@@ -315,25 +358,30 @@ async function refreshGlobalData() {
       const tag = r['Hashtag']?.trim() || r['hashtag']?.trim() || r['Tag']?.trim() || '';
       if (tag) tagCounts[tag] = (tagCounts[tag] || 0) + 1;
 
-      const em = r['Email']?.trim();
+      const rawEm = r['Email']?.trim();
+      const em = (rawEm && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEm)) ? rawEm : null;
       if (em) {
         const record = outreach[em.toLowerCase()];
         const isSent = !!record;
         const isReplied = record && record.replied;
 
         const incEm = (ov) => {
-          ov.cloud.emails++;
-          if(platName === 'Instagram') ov.afnanIg.emails++; else ov.afnanTk.emails++;
-          if(isSent) ov.cloud.sent++;
-          if(isReplied) ov.cloud.replied++;
-          if(isCreator) { 
-            ov.stats.creatorCloud++; 
-            if(isSent) ov.stats.creatorCloudSent++; 
-            if(isReplied) ov.stats.creatorCloudRep++;
-          } else { 
-            ov.stats.brandCloud++; 
-            if(isSent) ov.stats.brandCloudSent++; 
-            if(isReplied) ov.stats.brandCloudRep++;
+          if (collector === cloudProcessedIg || collector === cloudProcessedTk) {
+            ov.cloud.emails++;
+            if (collector === cloudProcessedIg) ov.afnanIg.emails++; else ov.afnanTk.emails++;
+            if(isSent) ov.cloud.sent++;
+            if(isReplied) ov.cloud.replied++;
+            if(isCreator) { 
+              ov.stats.creatorCloud++; 
+              if(isSent) ov.stats.creatorCloudSent++; 
+              if(isReplied) ov.stats.creatorCloudRep++;
+            } else { 
+              ov.stats.brandCloud++; 
+              if(isSent) ov.stats.brandCloudSent++; 
+              if(isReplied) ov.stats.brandCloudRep++;
+            }
+          } else if (collector === ashProcessedTk) {
+            ov.ashTk.emails++;
           }
         };
 
@@ -353,6 +401,7 @@ async function refreshGlobalData() {
 
     await processBatch(igRows, 1000, r => processRow(r, 'Instagram', cloudProcessedIg));
     await processBatch(tkRows, 1000, r => processRow(r, 'TikTok', cloudProcessedTk));
+    await processBatch(ashTkSheet, 1000, r => processRow(r, 'TikTok', ashProcessedTk));
 
     // 2. Process MongoDB Data
     try {
@@ -387,7 +436,8 @@ async function refreshGlobalData() {
 
         // Support both new format (plain strings) and old format ({ value: '...' })
         const emailRaw = Array.isArray(r.emails) ? r.emails[0] : null;
-        const email = typeof emailRaw === 'string' ? emailRaw.trim() : (emailRaw?.value || '').trim();
+        let email = typeof emailRaw === 'string' ? emailRaw.trim() : (emailRaw?.value || '').trim();
+        email = (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) ? email : null;
         
         // Brand detection: local scraper (Sanjeev) is strictly configured for Creators
         const isBrand = false;
@@ -432,6 +482,7 @@ async function refreshGlobalData() {
     // 3. Finalize Lists & Sorting
     cloudProcessedIg.sort((a,b) => b._ts - a._ts);
     cloudProcessedTk.sort((a,b) => b._ts - a._ts);
+    ashProcessedTk.sort((a,b) => b._ts - a._ts);
     
     const finalizeOv = (ov) => {
         ov.totalEmails = ov.cloud.emails + ov.local.emails;
@@ -451,6 +502,7 @@ async function refreshGlobalData() {
       tags: Object.entries(tagCounts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
       cloud_ig: cloudProcessedIg,
       cloud_tk: cloudProcessedTk,
+      ash_tk: ashProcessedTk,
       global_creator,
       global_brand,
       local_processed: localProcessed,
@@ -623,10 +675,12 @@ app.get('/api/overview', authMiddleware, async (req, res) => {
   // We use email counts as the best proxy for per-range sub-totals
   const igEmails = ig.length;
   const tkEmails = tk.length;
+  const ashTkEmails = filterRows(GLOBAL_STATE.ash_tk || []).length;
   const localEmails = local.length;
   const overview = {
     afnanIg: { accounts: igEmails, emails: igEmails },
     afnanTk: { accounts: tkEmails, emails: tkEmails },
+    ashTk: { accounts: ashTkEmails, emails: ashTkEmails },
     cloud: { 
       accounts: igEmails + tkEmails, 
       emails: igEmails + tkEmails, 
@@ -776,6 +830,36 @@ app.get('/api/afnan-tk/daily', authMiddleware, (req, res) => {
     tk: tkByDay[d]?.accounts || 0,
     emails: tkByDay[d]?.emails || 0
   })));
+});
+
+// ─── ASH TIKTOK ROUTES ───
+app.get('/api/ash-tk/daily', authMiddleware, (req, res) => {
+  const days = lastNDays(14);
+  const tk = GLOBAL_STATE.ash_tk || [];
+
+  const tkByDay = {};
+  tk.forEach(r => {
+    const d = (r.scrapedAt || '').split('T')[0];
+    if (!tkByDay[d]) tkByDay[d] = { accounts: 0, emails: 0 };
+    tkByDay[d].accounts++;
+    tkByDay[d].emails++;
+  });
+
+  res.json(days.map(d => ({
+    date: d,
+    label: new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+    tk: tkByDay[d]?.accounts || 0,
+    emails: tkByDay[d]?.emails || 0
+  })));
+});
+
+app.get('/api/ash-tk/emails', authMiddleware, (req, res) => {
+  const { page = 1, q = '', startDate, endDate } = req.query;
+  const limit = 50;
+  let all = GLOBAL_STATE.ash_tk || [];
+  let filtered = filterByDate(all, startDate, endDate);
+  if (q) { const lq = q.toLowerCase(); filtered = filtered.filter(e => (e.username||'').toLowerCase().includes(lq) || e.email.toLowerCase().includes(lq)); }
+  res.json({ total: filtered.length, page: parseInt(page), limit, rows: filtered.slice((parseInt(page)-1)*limit, parseInt(page)*limit) });
 });
 
 app.get('/api/cloud/emails', authMiddleware, (req, res) => {

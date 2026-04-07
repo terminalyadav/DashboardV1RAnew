@@ -2,8 +2,10 @@
 
 let view = 'global';
 let afIgState = { p:1, q:'' }, afTkState = { p:1, q:'' }, sjState = { p:1, q:'' };
+let ashTkState = { p:1, q:'' };
 let creatorState = { p:1 }, brandState = { p:1 };
 let afnanChart = null, localChart = null, nicheChart = null, countryChart = null;
+let ashTkChart = null;
 
 let currentRange = { start: null, end: null, type: 'all', label: 'All Time' };
 
@@ -204,6 +206,7 @@ function poll() {
       if(view === 'brand')  { loadBrandOutreachChart(); bLoad(); }
       if(view === 'afnan')  { loadAfnanChart(); loadAfnanTags(); afLoad('ig'); afLoad('tk'); }
       if(view === 'local')  { loadLocalChart(); loadNicheChart(); loadCountryChart(); sjLoad(); }
+      if(view === 'ash-tk') { loadAshTkChart(); loadAshTkData(ashTkState.p); }
     });
   }
 }
@@ -244,8 +247,14 @@ async function loadGlobal() {
       const tkRate = d.afnanTk.accounts > 0 ? (d.afnanTk.emails / d.afnanTk.accounts) * 100 : 0;
       
       document.getElementById('af-hit-rate').innerText = hitRate.toFixed(1) + '%';
-      
+    }
 
+    if(view === 'ash-tk' && d.ashTk) {
+      animateVal('ash-tk-acc', d.ashTk.accounts);
+      animateVal('ash-tk-em', d.ashTk.emails);
+      const hitRate = d.ashTk.accounts > 0 ? ((d.ashTk.emails / d.ashTk.accounts) * 100).toFixed(1) : '0.0';
+      const hrEl = document.getElementById('ash-tk-hitrate');
+      if (hrEl) hrEl.innerText = hitRate + '%';
     }
 
     if(view === 'local') {
@@ -806,6 +815,98 @@ function clearChartEmptyState(canvasId) {
   if (existing) existing.remove();
   canvas.style.opacity = '1';
 }
+
+// ═══════════════════════════════════════════
+// ASH TIKTOK
+// ═══════════════════════════════════════════
+async function loadAshTkChart() {
+  try {
+    const res = await fetch('/api/ash-tk/daily');
+    if (!res.ok) throw new Error('API error ' + res.status);
+    const data = await res.json();
+
+    if (ashTkChart) { ashTkChart.destroy(); ashTkChart = null; }
+
+    // Update 'Today' KPI
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayRow = data.find(d => d.date === todayStr);
+    const todayCount = todayRow ? (todayRow.emails || 0) : 0;
+    animateVal('ash-tk-today', todayCount);
+
+    const hasData = data.some(d => (d.emails || 0) > 0);
+    if (!hasData) {
+      showChartEmptyState('chartAshTk', 'No data yet — check TikTok(Ash) sheet is populated');
+      return;
+    }
+    clearChartEmptyState('chartAshTk');
+
+    const labels = data.map(d => d.label);
+    ashTkChart = createArchitecturalChart('chartAshTk', 'bar', labels, [
+      {
+        type: 'line',
+        label: 'Users Scraped',
+        data: data.map(d => d.tk || 0),
+        borderColor: '#22d3ee',
+        backgroundColor: 'transparent',
+        borderWidth: 2.5,
+        tension: 0.4,
+        pointBackgroundColor: '#06b6d4',
+        pointBorderColor: '#fff',
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        yAxisID: 'y1'
+      },
+      {
+        type: 'bar',
+        label: 'Emails Found',
+        data: data.map(d => d.emails || 0),
+        backgroundColor: createGradient('chartAshTk', '#0ea5e9'),
+        hoverBackgroundColor: '#38bdf8',
+        borderColor: '#0ea5e9',
+        borderWidth: 1,
+        borderRadius: 6,
+        yAxisID: 'y'
+      }
+    ], {
+      animation: { duration: 1500, easing: 'easeOutQuart' },
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        y:  { type: 'linear', position: 'left',  beginAtZero: true },
+        y1: { type: 'linear', position: 'right', beginAtZero: true, grid: { drawOnChartArea: false } }
+      }
+    });
+  } catch(e) {
+    console.error('loadAshTkChart error:', e);
+    showChartEmptyState('chartAshTk', 'Failed to load chart data');
+  }
+}
+
+window.loadAshTkData = async function(page = 1) {
+  try {
+    ashTkState.p = page;
+    const q = (document.getElementById('ash-tk-search')?.value || '').trim();
+    const dp = getDateParams();
+    const url = `/api/ash-tk/emails?page=${page}&q=${encodeURIComponent(q)}${dp}`;
+    const d = await fetch(url).then(r => r.json());
+
+    const statEl = document.getElementById('ash-tk-stats');
+    if (statEl) statEl.innerText = `${d.total.toLocaleString()} records`;
+
+    const tbEl = document.getElementById('ash-tk-tbody');
+    if (tbEl) {
+      tbEl.innerHTML = d.rows.map(r => `<tr>
+        <td>${usernameLink(r.username, 'TikTok')}</td>
+        <td class="font-mono text-xs text-zinc-400">${esc(r.email)}</td>
+        <td class="font-mono text-xs">${fmtNum(r.followers)}</td>
+        <td class="text-zinc-500 text-xs">${r.hashtag ? '<span class="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2 py-0.5 rounded-full text-[11px] font-semibold">#'+esc(r.hashtag)+'</span>' : '-'}</td>
+        <td class="text-zinc-500 text-xs">${r.scrapedAt ? new Date(r.scrapedAt).toLocaleDateString() : '-'}</td>
+      </tr>`).join('') || `<tr><td colspan="5" class="text-center text-zinc-500 py-8">No records found</td></tr>`;
+    }
+    renderPag(d.total, d.limit, page, 'ash-tk-pag', p => { ashTkState.p = p; loadAshTkData(p); });
+  } catch(e) {
+    console.error('loadAshTkData error:', e);
+  }
+};
 
 async function loadAfnanChart() {
   try {
