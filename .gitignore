@@ -6,3 +6,4 @@ nohup.out
 *.log
 service-account-key.json
 scrapper/service-account-key.json
+scrapper/service-account-key.json
