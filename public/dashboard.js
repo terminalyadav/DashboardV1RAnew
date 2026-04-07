@@ -279,6 +279,7 @@ async function loadGlobal() {
        const totalReplies = vHist.replies || 0;
        const replyRateStr = totalSent > 0 ? ((totalReplies / totalSent) * 100).toFixed(1) + '%' : '0%';
 
+       animateVal('c-users',        (s.creatorCloudUsers || 0) + (s.creatorSanjUsers || 0));
        animateVal('c-total',        totalSent);
        animateVal('c-replied',      totalReplies);
        animateVal('c-signup-total', vHist.signups || 0);

@@ -177,10 +177,14 @@
                 onclick="toggleMobileMenu()">☰</button>
             <div class="flex flex-col justify-center cursor-pointer"
                 onclick="switchView('global'); if(window.innerWidth < 768) toggleMobileMenu();">
-                <div class="flex items-center gap-2">
-                    <span
-                        class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse"></span>
-                    <h1 class="font-heading font-extrabold text-[17px] tracking-tight bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent leading-none">V1RA</h1>
+                <div class="flex items-center gap-2.5">
+                    <div class="w-7 h-7 rounded-md bg-black flex items-center justify-center border border-white/10 shrink-0 overflow-hidden relative">
+                        <svg class="w-[75%] h-[75%] mt-[2px]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M 3 2 L 10.5 22 L 15 22 L 7.5 2 Z" fill="white"/>
+                            <path d="M 21 2 L 13.5 22 L 9 22 L 16.5 2 Z" fill="#8DC63F"/>
+                        </svg>
+                    </div>
+                    <h1 class="font-heading font-extrabold text-lg tracking-tight text-white leading-none">V<span class="text-[#8DC63F]">1</span>RA</h1>
                 </div>
             </div>
         </div>
@@ -199,10 +203,13 @@
         <div class="flex items-center justify-between px-6 py-6 border-b border-white/[0.08] bg-white/[0.01]">
             <div class="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
                 onclick="switchView('global')">
-                <div
-                    class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-emerald-500 flex items-center justify-center text-xl shadow-[0_0_20px_rgba(93,95,239,0.3)] border border-white/20">
-                    ⚡</div>
-                <h1 class="font-heading font-bold text-lg tracking-tight bg-gradient-to-b from-white to-zinc-400 bg-clip-text text-transparent">V1RA</h1>
+                <div class="w-10 h-10 rounded-lg bg-[#050508] border border-white/10 flex items-center justify-center shadow-lg shrink-0 group-hover:scale-105 transition-transform">
+                    <svg class="w-[70%] h-[70%] mt-[2px]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M 3 2 L 10.5 22 L 15 22 L 7.5 2 Z" fill="white"/>
+                        <path d="M 21 2 L 13.5 22 L 9 22 L 16.5 2 Z" fill="#8DC63F"/>
+                    </svg>
+                </div>
+                <h1 class="font-heading font-black text-2xl tracking-tight text-white leading-none mt-1">V<span class="text-[#8DC63F]">1</span>RA</h1>
             </div>
             <button onclick="toggleMobileMenu()"
                 class="md:hidden w-9 h-9 rounded-full bg-white/[0.05] border border-white/10 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/10 transition-colors shadow-inner">✕</button>
@@ -418,7 +425,17 @@
                 </div>
 
                 <!-- KPI Grid -->
-                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 md:gap-6">
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4 md:gap-6">
+                    <!-- Total Creators -->
+                    <div class="glass-panel p-5 border-l-[3px] border-l-cyan-500 group hover:-translate-y-1 transition-all duration-300 relative overflow-hidden">
+                        <div class="absolute inset-0 bg-gradient-to-r from-cyan-500/5 to-transparent pointer-events-none"></div>
+                        <div class="flex items-center gap-3 mb-2 relative z-10">
+                            <div class="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center text-cyan-400 group-hover:scale-110 transition-transform shadow-[0_0_15px_rgba(6,182,212,0.2)]">👤</div>
+                            <h3 class="text-[10px] font-black tracking-widest text-zinc-400 uppercase">Total Creators</h3>
+                        </div>
+                        <div class="font-heading text-2xl font-extrabold text-white relative z-10" id="c-users">0</div>
+                    </div>
+
                     <div class="glass-panel p-5 border-l-[3px] border-l-blue-500 group hover:-translate-y-1 transition-all duration-300 relative overflow-hidden">
                         <div class="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-transparent pointer-events-none"></div>
                         <div class="flex items-center gap-3 mb-2 relative z-10">
@@ -475,11 +492,6 @@
                     </div>
                 </div>
 
-                <!-- Trend Insights -->
-                <div class="glass-panel p-6 md:p-8 flex flex-col justify-center">
-                    <h3 class="font-heading text-lg font-bold text-white flex items-center gap-2 mb-2">💡 Trend Insights</h3>
-                    <p class="text-[14px] text-zinc-300" id="trend-insight-text">Analyzing your performance data...</p>
-                </div>
 
                 <!-- Creators Outreach Graph -->
                 <div class="glass-panel p-6 md:p-8">

@@ -83,16 +83,14 @@
             to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
         }
 
-        /* ── Logo shimmer ── */
+        /* ── Logo ── */
         .logo-icon {
-            background: linear-gradient(135deg, #5D5FEF, #22d3ee);
-            box-shadow: 0 0 0 1px rgba(255,255,255,0.15) inset, 0 0 40px rgba(93,95,239,0.55), 0 0 80px rgba(93,95,239,0.2);
-            animation: logoPulse 3s ease-in-out infinite;
+            background: #0d0d0d;
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 2px 16px rgba(0,0,0,0.6);
         }
-        @keyframes logoPulse {
-            0%, 100% { box-shadow: 0 0 0 1px rgba(255,255,255,0.15) inset, 0 0 40px rgba(93,95,239,0.55), 0 0 80px rgba(93,95,239,0.2); }
-            50%       { box-shadow: 0 0 0 1px rgba(255,255,255,0.2) inset, 0 0 55px rgba(93,95,239,0.75), 0 0 100px rgba(93,95,239,0.3); }
-        }
+        .v1ra-wordmark { font-family: 'Outfit', sans-serif; font-size: 22px; font-weight: 800; letter-spacing: -0.5px; color: #fff; }
+        .v1ra-wordmark .accent { color: #8cdd00; }
 
         /* ── Inputs ── */
         .field-wrap { position: relative; }
@@ -171,9 +169,23 @@
 
         <!-- Logo + Brand -->
         <div class="flex items-center gap-4 mb-9 relative z-10">
-            <div class="logo-icon w-14 h-14 rounded-2xl flex items-center justify-center text-3xl select-none shrink-0">⚡</div>
+            <!-- V1RA Brand Logo -->
+            <div class="logo-icon w-14 h-14 rounded-2xl flex items-center justify-center select-none shrink-0">
+                <svg width="34" height="34" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Outer square -->
+                    <rect x="1" y="1" width="32" height="32" rx="5" fill="#0d0d0d" stroke="#222" stroke-width="1"/>
+                    <!-- Green V checkmark shape -->
+                    <path d="M6 12 L10 12 L17 22 L24 12 L28 12 L17 28 Z" fill="#8cdd00"/>
+                    <!-- White top overlay to cut the V into a checkmark-like icon -->
+                    <rect x="5" y="5" width="24" height="9" rx="2" fill="#0d0d0d"/>
+                    <!-- Refined V shape (two lines meeting) -->
+                    <polyline points="5,8 13,22 17,28 21,22 29,8" fill="none" stroke="#8cdd00" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <!-- small white v inner overlay to create logo feel -->
+                    <polyline points="9,8 17,20 25,8" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.15"/>
+                </svg>
+            </div>
             <div>
-                <h1 class="font-heading font-extrabold text-[22px] tracking-tight bg-gradient-to-r from-white to-zinc-400 bg-clip-text text-transparent">V1RA</h1>
+                <h1 class="v1ra-wordmark">V<span class="accent">1</span>RA</h1>
                 <p class="text-xs font-medium text-zinc-500 tracking-wide mt-0.5">Email Scraper Dashboard</p>
             </div>
         </div>
