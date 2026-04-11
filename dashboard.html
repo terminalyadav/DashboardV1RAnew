@@ -179,10 +179,7 @@
                 onclick="switchView('global'); if(window.innerWidth < 768) toggleMobileMenu();">
                 <div class="flex items-center gap-2.5">
                     <div class="w-7 h-7 rounded-md bg-black flex items-center justify-center border border-white/10 shrink-0 overflow-hidden relative">
-                        <svg class="w-[75%] h-[75%] mt-[2px]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M 3 2 L 10.5 22 L 15 22 L 7.5 2 Z" fill="white"/>
-                            <path d="M 21 2 L 13.5 22 L 9 22 L 16.5 2 Z" fill="#8DC63F"/>
-                        </svg>
+                        <img src="public/logo2.png" alt="V1RA Logo" class="w-[85%] h-[85%] object-contain" />
                     </div>
                     <h1 class="font-heading font-extrabold text-lg tracking-tight text-white leading-none">V<span class="text-[#8DC63F]">1</span>RA</h1>
                 </div>
@@ -204,10 +201,7 @@
             <div class="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
                 onclick="switchView('global')">
                 <div class="w-10 h-10 rounded-lg bg-[#050508] border border-white/10 flex items-center justify-center shadow-lg shrink-0 group-hover:scale-105 transition-transform">
-                    <svg class="w-[70%] h-[70%] mt-[2px]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M 3 2 L 10.5 22 L 15 22 L 7.5 2 Z" fill="white"/>
-                        <path d="M 21 2 L 13.5 22 L 9 22 L 16.5 2 Z" fill="#8DC63F"/>
-                    </svg>
+                    <img src="public/logo2.png" alt="V1RA Logo" class="w-[80%] h-[80%] object-contain" />
                 </div>
                 <h1 class="font-heading font-black text-2xl tracking-tight text-white leading-none mt-1">V<span class="text-[#8DC63F]">1</span>RA</h1>
             </div>
@@ -554,27 +548,6 @@
                     </div>
                 </div>
 
-                <!-- Engine Split -->
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div class="glass-panel p-6 md:p-8 border-t-[3px] border-t-lime-500 relative overflow-hidden group hover:-translate-y-1 transition-all duration-300">
-                        <div class="absolute inset-0 bg-gradient-to-b from-lime-500/10 to-transparent pointer-events-none"></div>
-                        <div class="flex items-center gap-4 mb-4 relative z-10">
-                             <div class="w-10 h-10 rounded-xl bg-lime-500/20 flex items-center justify-center text-lime-400 text-xl group-hover:scale-110 transition-transform shadow-[0_0_15px_rgba(132,204,22,0.3)]">☁️</div>
-                             <div class="text-[12px] font-bold text-lime-400 uppercase tracking-widest">Afnan Scraper Emails</div>
-                        </div>
-                        <div class="font-mono text-4xl font-extrabold my-2 relative z-10" id="c-cloud-em">0</div>
-                        <div class="mt-4 text-xs text-zinc-400 font-medium relative z-10 bg-white/5 inline-block px-3 py-1.5 rounded-lg border border-white/10">Sent: <span class="text-emerald-400 font-bold" id="c-cloud-sent">0</span> &nbsp;•&nbsp; Replied: <span class="text-amber-400 font-bold" id="c-cloud-rep">0</span></div>
-                    </div>
-                    <div class="glass-panel p-6 md:p-8 border-t-[3px] border-t-amber-500 relative overflow-hidden group hover:-translate-y-1 transition-all duration-300">
-                        <div class="absolute inset-0 bg-gradient-to-b from-amber-500/10 to-transparent pointer-events-none"></div>
-                        <div class="flex items-center gap-4 mb-4 relative z-10">
-                             <div class="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-500 text-xl group-hover:scale-110 transition-transform shadow-[0_0_15px_rgba(245,158,11,0.3)]">💻</div>
-                             <div class="text-[12px] font-bold text-amber-500 uppercase tracking-widest">Sanjeev Scraper Emails</div>
-                        </div>
-                        <div class="font-mono text-4xl font-extrabold my-2 relative z-10" id="c-local-em">0</div>
-                        <div class="mt-4 text-xs text-zinc-400 font-medium relative z-10 bg-white/5 inline-block px-3 py-1.5 rounded-lg border border-white/10">Sent: <span class="text-emerald-400 font-bold" id="c-local-sent">0</span> &nbsp;•&nbsp; Replied: <span class="text-amber-400 font-bold" id="c-local-rep">0</span></div>
-                    </div>
-                </div>
 
                 <!-- Creators Data Table -->
                 <div class="glass-panel p-6 md:p-8 flex flex-col">
@@ -675,27 +648,6 @@
                     </div>
                 </div>
 
-                <!-- Engine Split -->
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div class="glass-panel p-6 md:p-8 border-t-[3px] border-t-lime-500 relative overflow-hidden group hover:-translate-y-1 transition-all duration-300">
-                        <div class="absolute inset-0 bg-gradient-to-b from-lime-500/10 to-transparent pointer-events-none"></div>
-                        <div class="flex items-center gap-4 mb-4 relative z-10">
-                             <div class="w-10 h-10 rounded-xl bg-lime-500/20 flex items-center justify-center text-lime-400 text-xl group-hover:scale-110 transition-transform shadow-[0_0_15px_rgba(132,204,22,0.3)]">☁️</div>
-                             <div class="text-[12px] font-bold text-lime-400 uppercase tracking-widest">Afnan Scraper Emails</div>
-                        </div>
-                        <div class="font-mono text-4xl font-extrabold my-2 relative z-10" id="b-cloud-em">0</div>
-                        <div class="mt-4 text-xs text-zinc-400 font-medium relative z-10 bg-white/5 inline-block px-3 py-1.5 rounded-lg border border-white/10">Sent: <span class="text-emerald-400 font-bold" id="b-cloud-sent">0</span> &nbsp;•&nbsp; Replied: <span class="text-amber-400 font-bold" id="b-cloud-rep">0</span></div>
-                    </div>
-                    <div class="glass-panel p-6 md:p-8 border-t-[3px] border-t-pink-500 relative overflow-hidden group hover:-translate-y-1 transition-all duration-300">
-                        <div class="absolute inset-0 bg-gradient-to-b from-pink-500/10 to-transparent pointer-events-none"></div>
-                        <div class="flex items-center gap-4 mb-4 relative z-10">
-                             <div class="w-10 h-10 rounded-xl bg-pink-500/20 flex items-center justify-center text-pink-500 text-xl group-hover:scale-110 transition-transform shadow-[0_0_15px_rgba(236,72,153,0.3)]">💻</div>
-                             <div class="text-[12px] font-bold text-pink-500 uppercase tracking-widest">Sanjeev Scraper Emails</div>
-                        </div>
-                        <div class="font-mono text-4xl font-extrabold my-2 relative z-10" id="b-local-em">0</div>
-                        <div class="mt-4 text-xs text-zinc-400 font-medium relative z-10 bg-white/5 inline-block px-3 py-1.5 rounded-lg border border-white/10">Sent: <span class="text-emerald-400 font-bold" id="b-local-sent">0</span> &nbsp;•&nbsp; Replied: <span class="text-amber-400 font-bold" id="b-local-rep">0</span></div>
-                    </div>
-                </div>
 
                 <!-- Brands Data Table -->
                 <div class="glass-panel p-6 md:p-8 flex flex-col">
