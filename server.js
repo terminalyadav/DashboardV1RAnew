@@ -41,30 +41,52 @@ const CREDENTIALS = {
   username: process.env.AUTH_USERNAME || 'v1ra@admin',
   password: process.env.AUTH_PASSWORD || 'ash'
 };
-const SESSIONS = new Set();
 
-function authMiddleware(req, res, next) {
+// ─── MongoDB-backed sessions (works on Vercel serverless) ───
+async function createSession(token) {
+  const db = await getMongo();
+  const expiresAt = new Date(Date.now() + 86400000 * 7);
+  await db.collection('sessions').updateOne(
+    { token },
+    { $set: { token, expiresAt } },
+    { upsert: true }
+  );
+}
+async function hasSession(token) {
+  if (!token) return false;
+  const db = await getMongo();
+  const session = await db.collection('sessions').findOne({ token, expiresAt: { $gt: new Date() } });
+  return !!session;
+}
+async function deleteSession(token) {
+  if (!token) return;
+  const db = await getMongo();
+  await db.collection('sessions').deleteOne({ token });
+}
+
+async function authMiddleware(req, res, next) {
   const token = req.cookies?.session;
-  if (token && SESSIONS.has(token)) return next();
+  if (await hasSession(token)) return next();
   res.redirect('/');
 }
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   if (username === CREDENTIALS.username && password === CREDENTIALS.password) {
     const token = crypto.randomBytes(32).toString('hex');
-    SESSIONS.add(token);
+    await createSession(token);
     res.cookie('session', token, { httpOnly: true, maxAge: 86400000 * 7 });
     return res.json({ ok: true });
   }
   res.status(401).json({ error: 'Invalid credentials' });
 });
 
-app.post('/api/logout', (req, res) => {
-  SESSIONS.delete(req.cookies?.session);
+app.post('/api/logout', async (req, res) => {
+  await deleteSession(req.cookies?.session);
   res.clearCookie('session');
   res.json({ ok: true });
 });
+
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'login.html')));
 app.get('/dashboard', authMiddleware, (req, res) => res.sendFile(path.join(__dirname, 'dashboard.html')));
