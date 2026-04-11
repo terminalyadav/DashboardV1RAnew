@@ -18,6 +18,24 @@ app.use(express.json());
 app.use(cookieParser());
 app.use('/public', express.static(path.join(__dirname, 'public'), { maxAge: 0, etag: false }));
 
+// ─── Vercel Serverless: lazy data refresh ───
+const isVercel = !!process.env.VERCEL;
+let lastRefresh = 0;
+const REFRESH_TTL = 60 * 1000;
+async function ensureFreshData() {
+  if (Date.now() - lastRefresh > REFRESH_TTL) {
+    lastRefresh = Date.now();
+    await refreshGlobalData();
+  }
+}
+if (isVercel) {
+  app.use('/api/', async (req, res, next) => {
+    try { await ensureFreshData(); } catch(e) { console.error('ensureFreshData error:', e); }
+    next();
+  });
+}
+
+
 // ─── Auth (credentials from .env) ───
 const CREDENTIALS = {
   username: process.env.AUTH_USERNAME || 'v1ra@admin',
@@ -1044,36 +1062,12 @@ app.post('/api/mark-replied', authMiddleware, (req, res) => {
   res.json({ ok: true });
 });
 
-// ─── Lazy refresh for Vercel serverless ───
-let lastRefresh = 0;
-const REFRESH_TTL = 60 * 1000; // 60 seconds
-
-async function ensureFreshData() {
-  if (Date.now() - lastRefresh > REFRESH_TTL) {
-    lastRefresh = Date.now();
-    await refreshGlobalData();
-  }
-}
-
-// Patch overview and data endpoints to trigger refresh on Vercel
-const isVercel = !!process.env.VERCEL;
-
-// Wrap app to auto-refresh on every API call in serverless mode
-if (isVercel) {
-  app.use('/api/', async (req, res, next) => {
-    await ensureFreshData();
-    next();
-  });
-}
-
 app.listen(PORT, async () => {
   console.log(`\n⚡ Scraper Command Center v2.1 → http://localhost:${PORT}\n`);
-  // Initialize Global Data
   await refreshGlobalData();
   lastRefresh = Date.now();
-  // Set interval for background refreshing (local only)
   if (!isVercel) {
-    setInterval(refreshGlobalData, 60000); // Every 60 seconds
+    setInterval(refreshGlobalData, 60000);
   }
 });
 process.on('SIGINT', async () => { if (mongoClient) await mongoClient.close(); process.exit(0); });
