@@ -108,16 +108,18 @@ async function syncGoogleSheets() {
   const cleanTiktokAshSheet = tiktokAshSheet.trim();
   const cleanInstagramSheet = instagramSheet.trim();
 
-  if (!fs.existsSync(keyFile)) {
+  // Support inline JSON key (Vercel) or file (local)
+  const inlineKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+  if (!inlineKey && !fs.existsSync(keyFile)) {
     console.warn('⚠️ Google Sheets key file not found:', keyFile);
     return { tk: [], ig: [], ash_tk: [] };
   }
 
   try {
-    const auth = new google.auth.GoogleAuth({
-      keyFile,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-    });
+    const authConfig = inlineKey
+      ? { credentials: JSON.parse(inlineKey), scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'] }
+      : { keyFile, scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'] };
+    const auth = new google.auth.GoogleAuth(authConfig);
     const sheets = google.sheets({ version: 'v4', auth });
 
     // Cache sheet titles confirmed from metadata (needed for special-char names)
@@ -188,10 +190,14 @@ async function syncOutreachSheet() {
   if (!spreadsheetId) { console.warn('⚠️ GOOGLE_SHEETS_OUTREACH_SPREADSHEET_ID not set'); return outreachSheetCache.data; }
 
   const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE || path.join(SCRAPPER_DIR, 'service-account-key.json');
-  if (!fs.existsSync(keyFile)) return outreachSheetCache.data;
+  const inlineKey2 = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+  if (!inlineKey2 && !fs.existsSync(keyFile)) return outreachSheetCache.data;
 
   try {
-    const auth = new google.auth.GoogleAuth({ keyFile, scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'] });
+    const authConfig2 = inlineKey2
+      ? { credentials: JSON.parse(inlineKey2), scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'] }
+      : { keyFile, scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'] };
+    const auth = new google.auth.GoogleAuth(authConfig2);
     const sheets = google.sheets({ version: 'v4', auth });
     const sheetName = (process.env.GOOGLE_SHEETS_OUTREACH_TRACKING_SHEET || 'Tracking').trim();
 
