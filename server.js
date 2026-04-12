@@ -452,7 +452,12 @@ async function refreshGlobalData() {
     // 2. Process MongoDB Data
     try {
       const db = await getMongo();
-      const sjRows = await db.collection('accountdetails').find({ 'emails.0': { $exists: true } })
+      const sjRows = await db.collection('accountdetails').find({ 
+        $or: [
+          { 'emails.0': { $exists: true } },
+          { emails: { $type: 'string', $ne: '' } }
+        ]
+      })
         .project({ username: 1, emails: 1, followerCount: 1, followers: 1, createdAt: 1, isBusinessAccount: 1, contentType: 1, niche: 1 })
         .toArray();
       
@@ -481,7 +486,10 @@ async function refreshGlobalData() {
         const isYesterday = scrapedAt.startsWith(yesterdayStr);
 
         // Support both new format (plain strings) and old format ({ value: '...' })
-        const emailRaw = Array.isArray(r.emails) ? r.emails[0] : null;
+        let emailRaw = null;
+        if (Array.isArray(r.emails)) emailRaw = r.emails[0];
+        else if (typeof r.emails === 'string') emailRaw = r.emails;
+        
         let email = typeof emailRaw === 'string' ? emailRaw.trim() : (emailRaw?.value || '').trim();
         email = (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) ? email : null;
         
@@ -538,8 +546,8 @@ async function refreshGlobalData() {
     finalizeOv(ovToday);
     finalizeOv(ovYesterday);
 
-    const global_creator = [...cloudProcessedIg, ...cloudProcessedTk, ...localProcessed].filter(e => e.type === 'Creator').sort((a,b) => b._ts - a._ts);
-    const global_brand = [...cloudProcessedIg, ...cloudProcessedTk, ...localProcessed].filter(e => e.type === 'Brand').sort((a,b) => b._ts - a._ts);
+    const global_creator = [...cloudProcessedIg, ...cloudProcessedTk, ...ashProcessedTk, ...localProcessed].filter(e => e.type === 'Creator').sort((a,b) => b._ts - a._ts);
+    const global_brand = [...cloudProcessedIg, ...cloudProcessedTk, ...ashProcessedTk, ...localProcessed].filter(e => e.type === 'Brand').sort((a,b) => b._ts - a._ts);
 
     GLOBAL_STATE = {
       overview: ovAll,
@@ -1082,6 +1090,87 @@ app.post('/api/mark-replied', authMiddleware, (req, res) => {
   }
   fs.writeFileSync(OUTREACH_LOG, JSON.stringify(entries, null, 2));
   res.json({ ok: true });
+});
+
+
+// ─── SIGN-UP ANALYTICS ───
+// Fetches live creator sign-up data and cross-references
+// with all scraped emails to measure outreach→signup conversion.
+
+async function loadSignups() {
+  try {
+    console.log('[DEBUG] Calling loadSignups() (single fetch, API caps at 1000)...');
+    const response = await fetch('https://app.v1ra.com/api/email-outreach');
+    if (!response.ok) {
+      console.error('Failed to fetch signups from API. Status:', response.status);
+      return [];
+    }
+    const parsed = await response.json();
+    const raw = Array.isArray(parsed) ? parsed : (parsed.data || []);
+    console.log(`[DEBUG] V1RA API total count: ${parsed.count || raw.length}, returned: ${raw.length}`);
+
+    // Deduplicate by email (safety net)
+    const seen = new Set();
+    const signups = raw.filter(r => {
+      const email = (r.email || '').toLowerCase().trim();
+      if (!email || seen.has(email)) return false;
+      seen.add(email);
+      return true;
+    });
+    console.log(`[DEBUG] loadSignups() complete: ${signups.length} unique signups`);
+    return signups;
+  } catch (e) {
+    console.error('loadSignups error fetching from API:', e.message);
+    return [];
+  }
+}
+
+app.get(['/api/influencer-stats', '/api/signups'], authMiddleware, async (req, res) => {
+  console.log('[DEBUG] Hit signups endpoint!', req.originalUrl);
+  try {
+    // Build Set of all scraped emails from memory (already normalised)
+    const scrapedEmails = new Set();
+    console.log('[DEBUG] Global state creator length:', GLOBAL_STATE.global_creator?.length);
+    [...(GLOBAL_STATE.global_creator || []), ...(GLOBAL_STATE.global_brand || [])].forEach(r => {
+      if (r.email) {
+        // Use try catch just in case email is not a valid string
+        try { scrapedEmails.add(String(r.email).toLowerCase().trim()); } catch(e) {}
+      }
+    });
+
+    const signups = await loadSignups();
+    const total = signups.length;
+    const with_socials = signups.filter(s => Array.isArray(s.social_accounts) && s.social_accounts.length > 0).length;
+    const email_only   = signups.filter(s => !Array.isArray(s.social_accounts) || s.social_accounts.length === 0).length;
+
+    // Cross-reference: sign-ups whose email exists in our scraped list
+    const matched = signups.filter(s => s.email && scrapedEmails.has(String(s.email).toLowerCase().trim()));
+    const from_our_emails = matched.length;
+
+    // Lightweight mapper for all users
+    const mapUser = s => ({
+      name: s.name || '',
+      email: s.email || '',
+      country: s.locations?.country || '',
+      has_socials: Array.isArray(s.social_accounts) && s.social_accounts.length > 0,
+      socials: (s.social_accounts || []).map(sa => `${sa.platform}:${sa.username}`).join(', ')
+    });
+
+    const all_records = signups.map(mapUser);
+    const records_from_our_emails = matched.map(mapUser);
+
+    const signupEmails = new Set(signups.map(s => String(s.email).toLowerCase().trim()));
+    const outreach = readOutreach();
+    const non_converted_records = Object.values(outreach)
+      .filter(r => r.email && !signupEmails.has(r.email.toLowerCase().trim()))
+      .map(r => ({ name: r.username || r.name || '', email: r.email }));
+
+    console.log(`Sending signups to frontend: ${total} total, ${from_our_emails} matched`);
+    res.json({ total, from_our_emails, with_socials, email_only, all_records, records_from_our_emails, non_converted_records });
+  } catch (e) { 
+    console.error('API Error /api/signups:', e);
+    res.status(500).json({ error: e.message }); 
+  }
 });
 
 app.listen(PORT, async () => {

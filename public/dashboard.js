@@ -285,9 +285,7 @@ async function loadGlobal() {
        animateVal('c-users',        (s.creatorCloudUsers || 0) + (s.creatorSanjUsers || 0));
        animateVal('c-total',        totalSent);
        animateVal('c-replied',      totalReplies);
-       animateVal('c-signup-total', vHist.signups || 0);
-       animateVal('c-signup-social', vHist.social  || 0);
-       animateVal('c-signup-email',  vHist.email   || 0);
+       // Note: c-signup-total / c-signup-social / c-signup-email are set by fetchSignups() from live API — do not overwrite here
 
        const rateEl = document.getElementById('c-reply-rate');
        if (rateEl) { rateEl.innerText = replyRateStr; rateEl.dataset.val = replyRateStr; }
@@ -709,9 +707,6 @@ async function loadCreatorOutreachChart() {
 
     animateVal('c-total',         totals.sent);
     animateVal('c-replied',       totals.replies);
-    animateVal('c-signup-total',  totals.signups);
-    animateVal('c-signup-social', totals.social);
-    animateVal('c-signup-email',  totals.email);
     const rr = totals.sent > 0 ? ((totals.replies / totals.sent) * 100).toFixed(1) + '%' : '0%';
     const rrEl = document.getElementById('c-reply-rate');
     if (rrEl) { rrEl.innerText = rr; rrEl.dataset.val = rr; }
@@ -805,6 +800,11 @@ async function loadCreatorOutreachChart() {
       
       const statEl = document.getElementById('tracking-stats');
       if (statEl) statEl.innerText = `${creatorOutreachData.length} records`;
+    }
+
+    // ── Populate Tracking Card KPIs (social/email/non-converted from live API) ──
+    if (typeof window.loadTrackingCard === 'function') {
+      window.loadTrackingCard();
     }
 
   } catch(e) {
@@ -1234,3 +1234,208 @@ function fmtNum(n) {
   if (num >= 1e3) return `<span class="text-sky-400">${(num/1e3).toFixed(1)}K</span>`;
   return num.toLocaleString();
 }
+
+// ═══════════════════════════════════════════
+// SIGNUP DATA MODAL — KPI card click handlers
+// ═══════════════════════════════════════════
+
+let _modalRows = []; // currently displayed rows (used by downloadModalCSV)
+let _signupStatsCache = null; // cache fetched stats per reload
+
+/** Fetch (or return cached) influencer stats from the server */
+async function fetchInfluencerStats() {
+  try {
+    console.log('[modal] Fetching /api/influencer-stats...');
+    const r = await fetch('/api/influencer-stats');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    console.log('[modal] Got stats:', { total: data.total, with_socials: data.with_socials, email_only: data.email_only, non_converted: data.non_converted_records?.length });
+    _signupStatsCache = data;
+    return data;
+  } catch(e) {
+    console.error('[modal] fetchInfluencerStats error:', e);
+    return null;
+  }
+}
+
+/**
+ * Open the data modal for the given type:
+ *   'total'         → all signed-up users
+ *   'social'        → users with social accounts linked
+ *   'email'         → email-only sign-ups
+ *   'trk_social'    → users from our emails who linked socials
+ *   'trk_email'     → users from our emails who signed up email-only
+ *   'non_converted' → people we emailed who never signed up
+ */
+window.openDataModal = async function(type) {
+  // Show modal immediately in loading state
+  const modal = document.getElementById('data-modal');
+  const tbody = document.getElementById('data-modal-tbody');
+  const titleEl = document.getElementById('data-modal-title');
+  const subtitleEl = document.getElementById('data-modal-subtitle');
+
+  if (!modal) { console.error('[modal] #data-modal not found'); return; }
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+
+  if (tbody) tbody.innerHTML = '<tr><td colspan="2" class="text-center text-zinc-500 py-10"><span class="inline-block animate-pulse">⏳ Loading...</span></td></tr>';
+
+  // Map type → title/subtitle
+  const META = {
+    total:         { title: '📝 Total Sign-ups',       subtitle: 'All users who created a V1RA account' },
+    social:        { title: '🌐 Social Sign-ups',      subtitle: 'Users who linked at least one social account' },
+    email:         { title: '✉️ Email-Only Sign-ups',  subtitle: 'Users who signed up with email only (no socials)' },
+    trk_social:    { title: '🌐 Social — From My Emails', subtitle: 'Users we emailed who signed up & linked socials' },
+    trk_email:     { title: '✉️ Email-Only — From My Emails', subtitle: 'Users we emailed who signed up via email only' },
+    non_converted: { title: '🚫 Non-Converted Emails', subtitle: 'People we emailed who have NOT signed up yet' },
+  };
+  const meta = META[type] || { title: 'Details', subtitle: '' };
+  if (titleEl)    titleEl.textContent    = meta.title;
+  if (subtitleEl) subtitleEl.textContent = meta.subtitle;
+
+  try {
+    const data = await fetchInfluencerStats();
+    if (!data) throw new Error('Failed to fetch stats');
+
+    let rows = [];
+    switch (type) {
+      case 'total':
+        rows = (data.all_records || []);
+        break;
+      case 'social':
+        rows = (data.all_records || []).filter(r => r.has_socials);
+        break;
+      case 'email':
+        rows = (data.all_records || []).filter(r => !r.has_socials);
+        break;
+      case 'trk_social':
+        rows = (data.records_from_our_emails || []).filter(r => r.has_socials);
+        break;
+      case 'trk_email':
+        rows = (data.records_from_our_emails || []).filter(r => !r.has_socials);
+        break;
+      case 'non_converted':
+        rows = (data.non_converted_records || []);
+        break;
+      default:
+        rows = [];
+    }
+
+    console.log(`[modal] type=${type} rows=${rows.length}`);
+    _modalRows = rows; // save for CSV export
+
+    if (!tbody) return;
+
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="2" class="text-center text-zinc-500 py-10">No records found for this filter</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = rows.map(r =>
+      `<tr>
+        <td class="font-semibold text-white">${esc(r.name || '—')}</td>
+        <td class="font-mono text-xs text-zinc-300">${esc(r.email || '—')}</td>
+      </tr>`
+    ).join('');
+
+    // Update subtitle with count
+    if (subtitleEl) subtitleEl.textContent = `${meta.subtitle} · ${rows.length.toLocaleString()} records`;
+
+  } catch(e) {
+    console.error('[modal] openDataModal error:', e);
+    if (tbody) tbody.innerHTML = `<tr><td colspan="2" class="text-center text-red-400 py-10">❌ Error: ${esc(e.message)}</td></tr>`;
+  }
+};
+
+window.closeDataModal = function() {
+  const modal = document.getElementById('data-modal');
+  if (modal) modal.style.display = 'none';
+  document.body.style.overflow = '';
+};
+
+/** Download current modal rows as a CSV file */
+window.downloadModalCSV = function() {
+  if (!_modalRows || _modalRows.length === 0) {
+    alert('No data to export');
+    return;
+  }
+  const lines = ['Name,Email'];
+  _modalRows.forEach(r => {
+    const name  = (r.name  || '').replace(/,/g, ' ');
+    const email = (r.email || '').replace(/,/g, ' ');
+    lines.push(`"${name}","${email}"`);
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `signups_export_${Date.now()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  console.log('[modal] CSV exported:', _modalRows.length, 'rows');
+};
+
+// ═══════════════════════════════════════════
+// TRACKING CARD — populate KPI numbers
+// ═══════════════════════════════════════════
+
+/**
+ * Called after creator outreach chart loads.
+ * Fetches /api/influencer-stats and populates the Tracking Card KPIs:
+ *   trk-sent       → total sent from Google Sheet (already set by loadCreatorOutreachChart)
+ *   trk-social     → from_our_emails who linked socials
+ *   trk-email      → from_our_emails who are email-only
+ *   trk-nonconverted → did not sign up at all
+ */
+window.loadTrackingCard = async function() {
+  try {
+    console.log('[tracking] Loading tracking card data...');
+
+    // trk-sent is already populated by loadCreatorOutreachChart via animateVal
+    // We only need to populate trk-social, trk-email, trk-nonconverted from live stats
+    const data = _signupStatsCache || await fetchInfluencerStats();
+    if (!data) {
+      console.warn('[tracking] No stats data available');
+      return;
+    }
+
+    const trkSocial       = (data.records_from_our_emails || []).filter(r => r.has_socials).length;
+    const trkEmail        = (data.records_from_our_emails || []).filter(r => !r.has_socials).length;
+    const trkNonConverted = (data.non_converted_records || []).length;
+    const trkSent         = (data.records_from_our_emails?.length || 0) + trkNonConverted; // total we emailed
+
+    console.log('[tracking] trk-social:', trkSocial, 'trk-email:', trkEmail, 'trk-nonconverted:', trkNonConverted);
+
+    // Populate sent (total emails we sent that are in our outreach log)
+    const sentEl = document.getElementById('trk-sent');
+    if (sentEl) {
+      // Use the Google Sheet total sent if available (already animated), but also fallback
+      // Only set if it still shows the dash placeholder
+      if (sentEl.textContent === '—' || sentEl.textContent === '') {
+        animateVal('trk-sent', trkSent);
+      }
+    }
+
+    animateVal('trk-social',        trkSocial);
+    animateVal('trk-email',         trkEmail);
+    animateVal('trk-nonconverted',  trkNonConverted);
+
+    // Also update the main KPI signup cards (in case fetchSignups hasn't run yet)
+    const totalSignups = data.total || 0;
+    const withSocials  = data.with_socials || 0;
+    const emailOnly    = data.email_only || 0;
+
+    const totalEl  = document.getElementById('c-signup-total');
+    const socialEl = document.getElementById('c-signup-social');
+    const emailEl  = document.getElementById('c-signup-email');
+    if (totalEl  && (totalEl.textContent  === '0' || totalEl.textContent  === '')) animateVal('c-signup-total',  totalSignups);
+    if (socialEl && (socialEl.textContent === '0' || socialEl.textContent === '')) animateVal('c-signup-social', withSocials);
+    if (emailEl  && (emailEl.textContent  === '0' || emailEl.textContent  === '')) animateVal('c-signup-email',  emailOnly);
+
+    console.log('[tracking] Tracking card populated successfully');
+  } catch(e) {
+    console.error('[tracking] loadTrackingCard error:', e);
+  }
+};

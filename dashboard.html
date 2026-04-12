@@ -486,29 +486,35 @@
                     </div>
 
                     <!-- NEW SIGNUP CARDS -->
-                    <div class="glass-panel p-5 border-l-[3px] border-l-teal-400 group hover:-translate-y-1 transition-all duration-300 relative overflow-hidden">
+                    <div class="glass-panel p-5 border-l-[3px] border-l-teal-400 group hover:-translate-y-1 transition-all duration-300 relative overflow-hidden cursor-pointer" onclick="openDataModal('total')" title="Click to see all users">
                         <div class="absolute inset-0 bg-gradient-to-r from-teal-400/5 to-transparent pointer-events-none"></div>
+                        <div class="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style="background: radial-gradient(circle at 50% 50%, rgba(45,212,191,0.08), transparent 70%);"></div>
                         <div class="flex items-center gap-3 mb-2 relative z-10">
                             <div class="w-8 h-8 rounded-lg bg-teal-400/10 flex items-center justify-center text-teal-400 group-hover:scale-110 transition-transform shadow-[0_0_15px_rgba(45,212,191,0.2)]">📝</div>
                             <h3 class="text-[10px] font-black tracking-widest text-zinc-400 uppercase">Total Signups</h3>
+                            <span class="ml-auto text-[9px] text-teal-400/60 group-hover:text-teal-400 transition-colors">↗ details</span>
                         </div>
                         <div class="font-heading text-2xl font-extrabold text-teal-400 relative z-10" id="c-signup-total">0</div>
                     </div>
 
-                    <div class="glass-panel p-5 border-l-[3px] border-l-lime-400 group hover:-translate-y-1 transition-all duration-300 relative overflow-hidden">
+                    <div class="glass-panel p-5 border-l-[3px] border-l-lime-400 group hover:-translate-y-1 transition-all duration-300 relative overflow-hidden cursor-pointer" onclick="openDataModal('social')" title="Click to see social users">
                         <div class="absolute inset-0 bg-gradient-to-r from-lime-400/5 to-transparent pointer-events-none"></div>
+                        <div class="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style="background: radial-gradient(circle at 50% 50%, rgba(163,230,53,0.08), transparent 70%);"></div>
                         <div class="flex items-center gap-3 mb-2 relative z-10">
-                            <div class="w-8 h-8 rounded-lg bg-lime-400/10 flex items-center justify-center text-lime-400 group-hover:scale-110 transition-transform shadow-[0_0_15px_rgba(129,140,248,0.2)]">🌐</div>
+                            <div class="w-8 h-8 rounded-lg bg-lime-400/10 flex items-center justify-center text-lime-400 group-hover:scale-110 transition-transform shadow-[0_0_15px_rgba(163,230,53,0.2)]">🌐</div>
                             <h3 class="text-[10px] font-black tracking-widest text-zinc-400 uppercase">Social Signups</h3>
+                            <span class="ml-auto text-[9px] text-lime-400/60 group-hover:text-lime-400 transition-colors">↗ details</span>
                         </div>
                         <div class="font-heading text-2xl font-extrabold text-lime-400 relative z-10" id="c-signup-social">0</div>
                     </div>
 
-                    <div class="glass-panel p-5 border-l-[3px] border-l-fuchsia-400 group hover:-translate-y-1 transition-all duration-300 relative overflow-hidden">
+                    <div class="glass-panel p-5 border-l-[3px] border-l-fuchsia-400 group hover:-translate-y-1 transition-all duration-300 relative overflow-hidden cursor-pointer" onclick="openDataModal('email')" title="Click to see email-only users">
                         <div class="absolute inset-0 bg-gradient-to-r from-fuchsia-400/5 to-transparent pointer-events-none"></div>
+                        <div class="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style="background: radial-gradient(circle at 50% 50%, rgba(232,121,249,0.08), transparent 70%);"></div>
                         <div class="flex items-center gap-3 mb-2 relative z-10">
                             <div class="w-8 h-8 rounded-lg bg-fuchsia-400/10 flex items-center justify-center text-fuchsia-400 group-hover:scale-110 transition-transform shadow-[0_0_15px_rgba(232,121,249,0.2)]">✉️</div>
                             <h3 class="text-[10px] font-black tracking-widest text-zinc-400 uppercase">Email Signups</h3>
+                            <span class="ml-auto text-[9px] text-fuchsia-400/60 group-hover:text-fuchsia-400 transition-colors">↗ details</span>
                         </div>
                         <div class="font-heading text-2xl font-extrabold text-fuchsia-400 relative z-10" id="c-signup-email">0</div>
                     </div>
@@ -525,27 +531,32 @@
                     </div>
                 </div>
 
-                <!-- Outreach Tracking Table -->
-                <div class="glass-panel p-6 md:p-8 flex flex-col">
+                <!-- NEW TRACKING CARD SECTION -->
+                <div class="glass-panel p-6 md:p-8 flex flex-col mb-6 lg:mb-8" id="tracking-card-section">
                     <div class="flex items-center justify-between mb-6">
-                        <h3 class="font-heading text-xl font-bold text-white flex items-center gap-2">📊 Email Marketing Tracker</h3>
-                        <span class="text-xs font-mono text-zinc-500 bg-white/5 px-3 py-1.5 rounded-lg border border-white/10" id="tracking-stats">Tracking Sheet Data</span>
+                        <h3 class="font-heading text-xl font-bold text-white flex items-center gap-2">🎯 My Tracking Performance</h3>
+                        <span class="text-xs font-mono text-zinc-500 bg-white/5 px-3 py-1.5 rounded-lg border border-white/10">From Outreach</span>
                     </div>
-                    <div class="premium-table-wrap scx">
-                        <table class="premium-table">
-                            <thead>
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Day</th>
-                                    <th>Emails Sent</th>
-                                    <th>Inbox Replies</th>
-                                    <th>Total Signups</th>
-                                    <th>Signup with Socials</th>
-                                    <th>Signup with Email only</th>
-                                </tr>
-                            </thead>
-                            <tbody id="tracking-tbody"></tbody>
-                        </table>
+
+                    <div class="grid grid-cols-1 gap-6">
+                        <!-- My Email Performance -->
+                        <div>
+                            <h4 class="text-sm font-semibold text-zinc-400 mb-4 px-2 tracking-wide uppercase">My Email Performance</h4>
+                            <div class="grid grid-cols-3 gap-4">
+                                <div class="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4 text-center cursor-default">
+                                    <div class="text-[10px] font-black text-blue-400/70 uppercase tracking-widest mb-1">Emails Sent</div>
+                                    <div class="text-2xl font-extrabold text-blue-300" id="trk-sent">—</div>
+                                </div>
+                                <div class="bg-lime-500/5 border border-lime-500/20 rounded-xl p-4 text-center cursor-pointer hover:bg-lime-500/10 transition-colors" onclick="openDataModal('trk_social')">
+                                    <div class="text-[10px] font-black text-lime-400/70 uppercase tracking-widest mb-1 flex items-center justify-center gap-1">With Socials <span class="text-[9px] text-lime-400/50">↗</span></div>
+                                    <div class="text-2xl font-extrabold text-lime-300" id="trk-social">—</div>
+                                </div>
+                                <div class="bg-fuchsia-500/5 border border-fuchsia-500/20 rounded-xl p-4 text-center cursor-pointer hover:bg-fuchsia-500/10 transition-colors" onclick="openDataModal('trk_email')">
+                                    <div class="text-[10px] font-black text-fuchsia-400/70 uppercase tracking-widest mb-1 flex items-center justify-center gap-1">Email Only <span class="text-[9px] text-fuchsia-400/50">↗</span></div>
+                                    <div class="text-2xl font-extrabold text-fuchsia-300" id="trk-email">—</div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -994,6 +1005,89 @@
     </main>
 
     <script src="/public/dashboard.js?v=20260407-3"></script>
-</body>
 
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- SIGN-UP BREAKDOWN MODAL                      -->
+    <!-- ═══════════════════════════════════════════ -->
+    <div id="data-modal" style="display:none" class="fixed inset-0 z-[200] flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" onclick="closeDataModal()"></div>
+        <div class="relative z-10 w-full max-w-2xl max-h-[85vh] flex flex-col glass-panel overflow-hidden" style="border:1px solid rgba(45,212,191,0.25); box-shadow:0 0 60px rgba(45,212,191,0.15);">
+            <!-- Header -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-5 border-b border-white/[0.08]" style="background:linear-gradient(135deg,rgba(45,212,191,0.08),transparent);">
+                <div class="mb-4 sm:mb-0">
+                    <h2 class="font-heading text-xl font-bold text-white flex items-center gap-2" id="data-modal-title">Menu</h2>
+                    <p class="text-xs text-zinc-500 mt-0.5" id="data-modal-subtitle">Details</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button id="btn-export-csv" onclick="downloadModalCSV()" class="bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 border border-teal-500/30 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        Download CSV
+                    </button>
+                    <button onclick="closeDataModal()" class="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/10 transition-colors">✕</button>
+                </div>
+            </div>
+            
+            <!-- Table -->
+            <div class="flex-1 overflow-y-auto custom-scroll p-6">
+                <div class="premium-table-wrap scx">
+                    <table class="premium-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Email</th>
+                            </tr>
+                        </thead>
+                        <tbody id="data-modal-tbody">
+                            <tr><td colspan="2" class="text-center text-zinc-600 py-8">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // ─── SIGN-UP KPI CARDS ─────────────────────────────
+    // Fetches live signup stats and populates the 3 KPI cards.
+    // The detailed modal + CSV export is handled by openDataModal() in dashboard.js.
+
+    async function fetchSignups() {
+        try {
+            console.log('[signups] Fetching /api/influencer-stats for KPI cards...');
+            const r = await fetch('/api/influencer-stats');
+            if (!r.ok) throw new Error('Server returned ' + r.status);
+            const d = await r.json();
+            console.log('[signups] Response:', { total: d.total, with_socials: d.with_socials, email_only: d.email_only });
+
+            if (typeof animateVal === 'function') {
+                animateVal('c-signup-total',  d.total       || 0);
+                animateVal('c-signup-social', d.with_socials || 0);
+                animateVal('c-signup-email',  d.email_only  || 0);
+            }
+
+            // Prime the tracking card if ready
+            if (typeof window.loadTrackingCard === 'function') {
+                window.loadTrackingCard();
+            }
+        } catch(e) {
+            console.error('[signups] fetchSignups error:', e);
+        }
+    }
+
+    // Call immediately (script is at bottom of body, DOM is ready)
+    fetchSignups();
+    window.fetchSignups = fetchSignups;
+
+    // Refresh every time the creator view is opened
+    setTimeout(() => {
+        const _suOrig = window.switchView;
+        if (typeof _suOrig === 'function') {
+            window.switchView = function(v) {
+                _suOrig(v);
+                if (v === 'creator') fetchSignups();
+            };
+        }
+    }, 0);
+    </script>
+</body>
 </html>
