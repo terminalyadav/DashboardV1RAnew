@@ -9,22 +9,189 @@ let ashTkChart = null;
 
 let currentRange = { start: null, end: null, type: 'all', label: 'All Time' };
 
+// ─── ISO 3166-1 alpha-2 country code → full name map ───
+const ISO_COUNTRIES = {
+  AF:'Afghanistan',AX:'Åland Islands',AL:'Albania',DZ:'Algeria',AS:'American Samoa',
+  AD:'Andorra',AO:'Angola',AI:'Anguilla',AQ:'Antarctica',AG:'Antigua & Barbuda',
+  AR:'Argentina',AM:'Armenia',AW:'Aruba',AU:'Australia',AT:'Austria',AZ:'Azerbaijan',
+  BS:'Bahamas',BH:'Bahrain',BD:'Bangladesh',BB:'Barbados',BY:'Belarus',BE:'Belgium',
+  BZ:'Belize',BJ:'Benin',BM:'Bermuda',BT:'Bhutan',BO:'Bolivia',BQ:'Caribbean Netherlands',
+  BA:'Bosnia & Herzegovina',BW:'Botswana',BV:'Bouvet Island',BR:'Brazil',
+  IO:'British Indian Ocean Territory',BN:'Brunei',BG:'Bulgaria',BF:'Burkina Faso',
+  BI:'Burundi',CV:'Cape Verde',KH:'Cambodia',CM:'Cameroon',CA:'Canada',
+  KY:'Cayman Islands',CF:'Central African Republic',TD:'Chad',CL:'Chile',
+  CN:'China',CX:'Christmas Island',CC:'Cocos Islands',CO:'Colombia',KM:'Comoros',
+  CG:'Congo - Brazzaville',CD:'Congo - Kinshasa',CK:'Cook Islands',CR:'Costa Rica',
+  CI:'Côte d’Ivoire',HR:'Croatia',CU:'Cuba',CW:'Curaçao',CY:'Cyprus',CZ:'Czechia',
+  DK:'Denmark',DJ:'Djibouti',DM:'Dominica',DO:'Dominican Republic',EC:'Ecuador',
+  EG:'Egypt',SV:'El Salvador',GQ:'Equatorial Guinea',ER:'Eritrea',EE:'Estonia',
+  SZ:'Eswatini',ET:'Ethiopia',FK:'Falkland Islands',FO:'Faroe Islands',FJ:'Fiji',
+  FI:'Finland',FR:'France',GF:'French Guiana',PF:'French Polynesia',
+  TF:'French Southern Territories',GA:'Gabon',GM:'Gambia',GE:'Georgia',DE:'Germany',
+  GH:'Ghana',GI:'Gibraltar',GR:'Greece',GL:'Greenland',GD:'Grenada',GP:'Guadeloupe',
+  GU:'Guam',GT:'Guatemala',GG:'Guernsey',GN:'Guinea',GW:'Guinea-Bissau',GY:'Guyana',
+  HT:'Haiti',HM:'Heard & McDonald Islands',VA:'Vatican City',HN:'Honduras',
+  HK:'Hong Kong',HU:'Hungary',IS:'Iceland',IN:'India',ID:'Indonesia',IR:'Iran',
+  IQ:'Iraq',IE:'Ireland',IM:'Isle of Man',IL:'Israel',IT:'Italy',JM:'Jamaica',
+  JP:'Japan',JE:'Jersey',JO:'Jordan',KZ:'Kazakhstan',KE:'Kenya',KI:'Kiribati',
+  KP:'North Korea',KR:'South Korea',KW:'Kuwait',KG:'Kyrgyzstan',LA:'Laos',
+  LV:'Latvia',LB:'Lebanon',LS:'Lesotho',LR:'Liberia',LY:'Libya',LI:'Liechtenstein',
+  LT:'Lithuania',LU:'Luxembourg',MO:'Macao',MG:'Madagascar',MW:'Malawi',MY:'Malaysia',
+  MV:'Maldives',ML:'Mali',MT:'Malta',MH:'Marshall Islands',MQ:'Martinique',
+  MR:'Mauritania',MU:'Mauritius',YT:'Mayotte',MX:'Mexico',FM:'Micronesia',
+  MD:'Moldova',MC:'Monaco',MN:'Mongolia',ME:'Montenegro',MS:'Montserrat',MA:'Morocco',
+  MZ:'Mozambique',MM:'Myanmar',NA:'Namibia',NR:'Nauru',NP:'Nepal',NL:'Netherlands',
+  NC:'New Caledonia',NZ:'New Zealand',NI:'Nicaragua',NE:'Niger',NG:'Nigeria',
+  NU:'Niue',NF:'Norfolk Island',MK:'North Macedonia',MP:'Northern Mariana Islands',
+  NO:'Norway',OM:'Oman',PK:'Pakistan',PW:'Palau',PS:'Palestine',PA:'Panama',
+  PG:'Papua New Guinea',PY:'Paraguay',PE:'Peru',PH:'Philippines',PN:'Pitcairn Islands',
+  PL:'Poland',PT:'Portugal',PR:'Puerto Rico',QA:'Qatar',RE:'Réunion',RO:'Romania',
+  RU:'Russia',RW:'Rwanda',BL:'Saint Barthélemy',SH:'Saint Helena',KN:'Saint Kitts & Nevis',
+  LC:'Saint Lucia',MF:'Saint Martin',PM:'Saint Pierre & Miquelon',
+  VC:'Saint Vincent & Grenadines',WS:'Samoa',SM:'San Marino',ST:'São Tomé & Príncipe',
+  SA:'Saudi Arabia',SN:'Senegal',RS:'Serbia',SC:'Seychelles',SL:'Sierra Leone',
+  SG:'Singapore',SX:'Sint Maarten',SK:'Slovakia',SI:'Slovenia',SB:'Solomon Islands',
+  SO:'Somalia',ZA:'South Africa',GS:'South Georgia',SS:'South Sudan',ES:'Spain',
+  LK:'Sri Lanka',SD:'Sudan',SR:'Suriname',SJ:'Svalbard & Jan Mayen',SE:'Sweden',
+  CH:'Switzerland',SY:'Syria',TW:'Taiwan',TJ:'Tajikistan',TZ:'Tanzania',TH:'Thailand',
+  TL:'Timor-Leste',TG:'Togo',TK:'Tokelau',TO:'Tonga',TT:'Trinidad & Tobago',
+  TN:'Tunisia',TR:'Turkey',TM:'Turkmenistan',TC:'Turks & Caicos Islands',TV:'Tuvalu',
+  UG:'Uganda',UA:'Ukraine',AE:'United Arab Emirates',GB:'United Kingdom',
+  US:'United States',UM:'U.S. Outlying Islands',UY:'Uruguay',UZ:'Uzbekistan',
+  VU:'Vanuatu',VE:'Venezuela',VN:'Vietnam',VG:'British Virgin Islands',
+  VI:'U.S. Virgin Islands',WF:'Wallis & Futuna',EH:'Western Sahara',YE:'Yemen',
+  ZM:'Zambia',ZW:'Zimbabwe'
+};
+
+/** Convert ISO code or raw value to a display name */
+function countryDisplayName(code) {
+  if (!code) return '';
+  const upper = code.trim().toUpperCase();
+  return ISO_COUNTRIES[upper] || code; // fall back to raw value if not a code
+}
+
+/** Get flag emoji for an ISO 2-letter code */
+function countryFlag(code) {
+  if (!code || code.trim().length !== 2) return '🏳️';
+  const base = 0x1F1E6;
+  const c = code.toUpperCase();
+  return String.fromCodePoint(base + c.charCodeAt(0) - 65) +
+         String.fromCodePoint(base + c.charCodeAt(1) - 65);
+}
+
+// ─── Custom Country Dropdown Logic ───
+
+let _activeCountryCode = ''; // currently selected country filter
+
+window.toggleCountryDropdown = function() {
+  const panel = document.getElementById('country-dropdown-panel');
+  const arrow = document.getElementById('country-dropdown-arrow');
+  if (!panel) return;
+  const isHidden = panel.classList.toggle('hidden');
+  if (arrow) arrow.style.transform = isHidden ? 'rotate(0deg)' : 'rotate(180deg)';
+  if (!isHidden) {
+    // Focus search on open
+    const input = document.getElementById('country-search-input');
+    if (input) { input.value = ''; filterCountryOptions(''); setTimeout(() => input.focus(), 50); }
+  }
+};
+
+window.filterCountryOptions = function(query) {
+  const list = document.getElementById('country-options-list');
+  if (!list) return;
+  const q = query.toLowerCase();
+  list.querySelectorAll('button.country-option[data-code]').forEach(btn => {
+    if (btn.dataset.code === '') return; // always show 'All'
+    const name = (btn.textContent || '').toLowerCase();
+    btn.style.display = (!q || name.includes(q)) ? '' : 'none';
+  });
+};
+
+window.selectCountry = function(code, btn) {
+  _activeCountryCode = code;
+  const label = document.getElementById('country-dropdown-label');
+  if (label) {
+    if (!code) {
+      label.textContent = '🌍 All Countries';
+    } else {
+      const flag = countryFlag(code);
+      const name = countryDisplayName(code);
+      label.textContent = `${flag}\u00a0${name}`;
+    }
+  }
+  // Highlight selected
+  const list = document.getElementById('country-options-list');
+  if (list) {
+    list.querySelectorAll('button.country-option').forEach(b => {
+      const isSel = b.dataset.code === code;
+      b.style.background = isSel ? 'rgba(45,212,191,0.12)' : '';
+      b.style.color = isSel ? '#5eead4' : '';
+    });
+  }
+  // Close panel
+  const panel = document.getElementById('country-dropdown-panel');
+  const arrow = document.getElementById('country-dropdown-arrow');
+  if (panel) panel.classList.add('hidden');
+  if (arrow) arrow.style.transform = 'rotate(0deg)';
+  // Filter rows
+  filterModalByCountry(code);
+};
+
+/** Populate the custom country dropdown with a list of {code, name} entries */
+function populateCountryDropdown(rawValues) {
+  const list = document.getElementById('country-options-list');
+  if (!list) return;
+  // Keep the 'All Countries' btn, remove old dynamic ones
+  const allBtn = list.querySelector('button[data-code=""]');
+  list.innerHTML = '';
+  if (allBtn) list.appendChild(allBtn);
+  else {
+    const a = document.createElement('button');
+    a.type = 'button'; a.dataset.code = '';
+    a.className = 'country-option w-full text-left px-3 py-2 text-xs font-semibold text-teal-400 hover:bg-teal-500/10 transition-colors flex items-center gap-2';
+    a.textContent = '🌍 All Countries';
+    a.onclick = () => selectCountry('', a);
+    list.appendChild(a);
+  }
+  rawValues.forEach(raw => {
+    const code = raw.trim();
+    if (!code) return;
+    const flag = countryFlag(code);
+    const name = countryDisplayName(code);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.code = code;
+    btn.className = 'country-option w-full text-left px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-white/5 hover:text-white transition-colors flex items-center gap-2';
+    btn.innerHTML = `<span class="text-base leading-none">${flag}</span><span>${esc(name)}</span>`;
+    btn.onclick = () => selectCountry(code, btn);
+    list.appendChild(btn);
+  });
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   currentRange.start = null;
   currentRange.end = null;
   
-  updateDateField(); // sync initial active states (desktop + mobile)
+  updateDateField();
   switchView('global');
   setInterval(poll, 60000);
   setInterval(pollLiveLogs, 3000);
 
-  // Close dropdown when clicking outside
+  // Close date dropdown when clicking outside
   document.addEventListener('click', (e) => {
     const dropdown = document.getElementById('date-filter-dropdown');
     const menu = document.getElementById('date-menu');
     if (dropdown && !dropdown.contains(e.target)) {
         menu.classList.add('hidden');
         document.getElementById('date-arrow').style.transform = 'rotate(0deg)';
+    }
+    // Close country dropdown when clicking outside
+    const cWrap = document.getElementById('country-dropdown-wrap');
+    const cPanel = document.getElementById('country-dropdown-panel');
+    const cArrow = document.getElementById('country-dropdown-arrow');
+    if (cWrap && cPanel && !cWrap.contains(e.target)) {
+      cPanel.classList.add('hidden');
+      if (cArrow) cArrow.style.transform = 'rotate(0deg)';
     }
   });
 });
@@ -282,7 +449,9 @@ async function loadGlobal() {
        const totalReplies = vHist.replies || 0;
        const replyRateStr = totalSent > 0 ? ((totalReplies / totalSent) * 100).toFixed(1) + '%' : '0%';
 
-       animateVal('c-users',        (s.creatorCloudUsers || 0) + (s.creatorSanjUsers || 0));
+       // Total Creators: use raw account counts that already respect the date filter
+       const totalCreators = (d.cloud?.accounts || 0) + (d.local?.accounts || 0) + (d.ashTk?.accounts || 0);
+       animateVal('c-users', totalCreators);
        animateVal('c-total',        totalSent);
        animateVal('c-replied',      totalReplies);
        // Note: c-signup-total / c-signup-social / c-signup-email are set by fetchSignups() from live API — do not overwrite here
@@ -1282,16 +1451,22 @@ window.openDataModal = async function(type) {
 
   // Map type → title/subtitle
   const META = {
-    total:         { title: '📝 Total Sign-ups',       subtitle: 'All users who created a V1RA account' },
-    social:        { title: '🌐 Social Sign-ups',      subtitle: 'Users who linked at least one social account' },
-    email:         { title: '✉️ Email-Only Sign-ups',  subtitle: 'Users who signed up with email only (no socials)' },
-    trk_social:    { title: '🌐 Social — From My Emails', subtitle: 'Users we emailed who signed up & linked socials' },
-    trk_email:     { title: '✉️ Email-Only — From My Emails', subtitle: 'Users we emailed who signed up via email only' },
-    non_converted: { title: '🚫 Non-Converted Emails', subtitle: 'People we emailed who have NOT signed up yet' },
+    total:         { title: '📝 Total Sign-ups',          subtitle: 'All users who created a V1RA account' },
+    social:        { title: '🌐 Social Sign-ups',         subtitle: 'Users who linked at least one social account' },
+    email:         { title: '✉️ Email-Only Sign-ups',     subtitle: 'Users who signed up with email only (no socials)' },
+    trk_total:     { title: '📧 All Sign-ups from Our Emails', subtitle: 'Everyone who signed up after we emailed them' },
+    trk_social:    { title: '🌐 Social — From Our Emails',    subtitle: 'Users we emailed who signed up & linked socials' },
+    trk_email:     { title: '✉️ Email-Only — From Our Emails', subtitle: 'Users we emailed who signed up via email only' },
+    non_converted: { title: '🚫 Non-Converted Emails',   subtitle: 'People we emailed who have NOT signed up yet' },
   };
   const meta = META[type] || { title: 'Details', subtitle: '' };
   if (titleEl)    titleEl.textContent    = meta.title;
   if (subtitleEl) subtitleEl.textContent = meta.subtitle;
+
+  // Reset custom country dropdown
+  _activeCountryCode = '';
+  const lbl0 = document.getElementById('country-dropdown-label');
+  if (lbl0) lbl0.textContent = '\uD83C\uDF0D All Countries';
 
   try {
     const data = await fetchInfluencerStats();
@@ -1308,6 +1483,9 @@ window.openDataModal = async function(type) {
       case 'email':
         rows = (data.all_records || []).filter(r => !r.has_socials);
         break;
+      case 'trk_total':
+        rows = (data.records_from_our_emails || []);
+        break;
       case 'trk_social':
         rows = (data.records_from_our_emails || []).filter(r => r.has_socials);
         break;
@@ -1322,45 +1500,78 @@ window.openDataModal = async function(type) {
     }
 
     console.log(`[modal] type=${type} rows=${rows.length}`);
-    _modalRows = rows; // save for CSV export
+    _modalRows = rows; // full unfiltered set for this type
+    _activeCountryCode = ''; // reset filter
+
+    // Populate custom country dropdown with codes unique to this dataset
+    const countryCodes = [...new Set(rows.map(r => r.country || '').filter(Boolean))].sort();
+    populateCountryDropdown(countryCodes);
+    // Reset dropdown button label
+    const lbl = document.getElementById('country-dropdown-label');
+    if (lbl) lbl.textContent = '\uD83C\uDF0D All Countries';
 
     if (!tbody) return;
-
-    if (rows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="2" class="text-center text-zinc-500 py-10">No records found for this filter</td></tr>';
-      return;
-    }
-
-    tbody.innerHTML = rows.map(r =>
-      `<tr>
-        <td class="font-semibold text-white">${esc(r.name || '—')}</td>
-        <td class="font-mono text-xs text-zinc-300">${esc(r.email || '—')}</td>
-      </tr>`
-    ).join('');
-
-    // Update subtitle with count
-    if (subtitleEl) subtitleEl.textContent = `${meta.subtitle} · ${rows.length.toLocaleString()} records`;
+    renderModalRows(rows, tbody, meta, subtitleEl);
 
   } catch(e) {
     console.error('[modal] openDataModal error:', e);
-    if (tbody) tbody.innerHTML = `<tr><td colspan="2" class="text-center text-red-400 py-10">❌ Error: ${esc(e.message)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="3" class="text-center text-red-400 py-10">❌ Error: ${esc(e.message)}</td></tr>`;
   }
+};
+
+/** Render rows into the modal table (2 cols: Name, Email) */
+function renderModalRows(rows, tbody, meta, subtitleEl) {
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="2" class="text-center text-zinc-500 py-10">No records found for this filter</td></tr>';
+    if (subtitleEl) subtitleEl.textContent = `${meta.subtitle} \u00b7 0 records`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r =>
+    `<tr>
+      <td class="font-semibold text-white">${esc(r.name || '\u2014')}</td>
+      <td class="font-mono text-xs text-zinc-300">${esc(r.email || '\u2014')}</td>
+    </tr>`
+  ).join('');
+  if (subtitleEl) subtitleEl.textContent = `${meta.subtitle} \u00b7 ${rows.length.toLocaleString()} records`;
+}
+
+/**
+ * Client-side country filter (called by selectCountry).
+ * Filters _modalRows by country code and re-renders without any API call.
+ */
+window.filterModalByCountry = function(countryCode) {
+  const tbody = document.getElementById('data-modal-tbody');
+  const subtitleEl = document.getElementById('data-modal-subtitle');
+  const meta = { subtitle: (subtitleEl?.textContent || '').split(' \u00b7 ')[0] };
+  if (!tbody) return;
+  const filtered = countryCode
+    ? _modalRows.filter(r => (r.country || '') === countryCode)
+    : _modalRows;
+  renderModalRows(filtered, tbody, meta, subtitleEl);
 };
 
 window.closeDataModal = function() {
   const modal = document.getElementById('data-modal');
   if (modal) modal.style.display = 'none';
   document.body.style.overflow = '';
+  // Reset country dropdown
+  _activeCountryCode = '';
+  const panel = document.getElementById('country-dropdown-panel');
+  const arrow = document.getElementById('country-dropdown-arrow');
+  const lbl = document.getElementById('country-dropdown-label');
+  if (panel) panel.classList.add('hidden');
+  if (arrow) arrow.style.transform = 'rotate(0deg)';
+  if (lbl) lbl.textContent = '\uD83C\uDF0D All Countries';
 };
 
-/** Download current modal rows as a CSV file */
+/** Download current modal rows as a CSV (exports filtered set if country active, else all) */
 window.downloadModalCSV = function() {
-  if (!_modalRows || _modalRows.length === 0) {
-    alert('No data to export');
-    return;
-  }
+  const exportRows = _activeCountryCode
+    ? _modalRows.filter(r => (r.country || '') === _activeCountryCode)
+    : _modalRows;
+  if (!exportRows || exportRows.length === 0) { alert('No data to export'); return; }
   const lines = ['Name,Email'];
-  _modalRows.forEach(r => {
+  exportRows.forEach(r => {
     const name  = (r.name  || '').replace(/,/g, ' ');
     const email = (r.email || '').replace(/,/g, ' ');
     lines.push(`"${name}","${email}"`);
@@ -1369,12 +1580,14 @@ window.downloadModalCSV = function() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
+  // Count exported rows for the log
+  const exportCount = exportRows.length;
   a.download = `signups_export_${Date.now()}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  console.log('[modal] CSV exported:', _modalRows.length, 'rows');
+  console.log('[modal] CSV exported:', exportCount, 'rows');
 };
 
 // ═══════════════════════════════════════════
@@ -1383,44 +1596,33 @@ window.downloadModalCSV = function() {
 
 /**
  * Called after creator outreach chart loads.
- * Fetches /api/influencer-stats and populates the Tracking Card KPIs:
- *   trk-sent       → total sent from Google Sheet (already set by loadCreatorOutreachChart)
- *   trk-social     → from_our_emails who linked socials
- *   trk-email      → from_our_emails who are email-only
- *   trk-nonconverted → did not sign up at all
+ * Fetches /api/influencer-stats and populates the "Sign-ups from Our Emails" Tracking Card KPIs:
+ *   trk-sent   → total sign-ups that came from our emails (records_from_our_emails.length)
+ *   trk-social → from_our_emails who linked socials
+ *   trk-email  → from_our_emails who are email-only
  */
 window.loadTrackingCard = async function() {
   try {
     console.log('[tracking] Loading tracking card data...');
 
-    // trk-sent is already populated by loadCreatorOutreachChart via animateVal
-    // We only need to populate trk-social, trk-email, trk-nonconverted from live stats
     const data = _signupStatsCache || await fetchInfluencerStats();
     if (!data) {
       console.warn('[tracking] No stats data available');
       return;
     }
 
-    const trkSocial       = (data.records_from_our_emails || []).filter(r => r.has_socials).length;
-    const trkEmail        = (data.records_from_our_emails || []).filter(r => !r.has_socials).length;
-    const trkNonConverted = (data.non_converted_records || []).length;
-    const trkSent         = (data.records_from_our_emails?.length || 0) + trkNonConverted; // total we emailed
+    const trkTotal  = (data.records_from_our_emails || []).length;
+    const trkSocial = (data.records_from_our_emails || []).filter(r => r.has_socials).length;
+    const trkEmail  = (data.records_from_our_emails || []).filter(r => !r.has_socials).length;
 
-    console.log('[tracking] trk-social:', trkSocial, 'trk-email:', trkEmail, 'trk-nonconverted:', trkNonConverted);
+    console.log('[tracking] trk-total:', trkTotal, 'trk-social:', trkSocial, 'trk-email:', trkEmail);
 
-    // Populate sent (total emails we sent that are in our outreach log)
-    const sentEl = document.getElementById('trk-sent');
-    if (sentEl) {
-      // Use the Google Sheet total sent if available (already animated), but also fallback
-      // Only set if it still shows the dash placeholder
-      if (sentEl.textContent === '—' || sentEl.textContent === '') {
-        animateVal('trk-sent', trkSent);
-      }
-    }
+    // trk-sent now shows total sign-ups from our emails (clickable → opens trk_total modal)
+    animateVal('trk-sent', trkTotal);
 
     animateVal('trk-social',        trkSocial);
     animateVal('trk-email',         trkEmail);
-    animateVal('trk-nonconverted',  trkNonConverted);
+
 
     // Also update the main KPI signup cards (in case fetchSignups hasn't run yet)
     const totalSignups = data.total || 0;
