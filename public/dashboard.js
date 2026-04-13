@@ -451,7 +451,9 @@ async function loadGlobal() {
 
        // Total Creators: use raw account counts that already respect the date filter
        const totalCreators = (d.cloud?.accounts || 0) + (d.local?.accounts || 0) + (d.ashTk?.accounts || 0);
+       const totalScraped = (d.cloud?.emails || 0) + (d.local?.emails || 0) + (d.ashTk?.emails || 0);
        animateVal('c-users', totalCreators);
+       animateVal('c-scraped', totalScraped);
        animateVal('c-total',        totalSent);
        animateVal('c-replied',      totalReplies);
        // Note: c-signup-total / c-signup-social / c-signup-email are set by fetchSignups() from live API — do not overwrite here
@@ -1414,10 +1416,15 @@ let _signupStatsCache = null; // cache fetched stats per reload
 /** Fetch (or return cached) influencer stats from the server */
 async function fetchInfluencerStats() {
   try {
-    console.log('[modal] Fetching /api/influencer-stats...');
-    const r = await fetch('/api/influencer-stats');
+    const dp = getDateParams();
+    if (_signupStatsCache && _signupStatsCache._dp === dp) return _signupStatsCache;
+
+    console.log('[modal] Fetching /api/influencer-stats...', dp);
+    const url = `/api/influencer-stats${dp ? '?' + dp.slice(1) : ''}`;
+    const r = await fetch(url);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
+    data._dp = dp;
     console.log('[modal] Got stats:', { total: data.total, with_socials: data.with_socials, email_only: data.email_only, non_converted: data.non_converted_records?.length });
     _signupStatsCache = data;
     return data;
@@ -1632,9 +1639,9 @@ window.loadTrackingCard = async function() {
     const totalEl  = document.getElementById('c-signup-total');
     const socialEl = document.getElementById('c-signup-social');
     const emailEl  = document.getElementById('c-signup-email');
-    if (totalEl  && (totalEl.textContent  === '0' || totalEl.textContent  === '')) animateVal('c-signup-total',  totalSignups);
-    if (socialEl && (socialEl.textContent === '0' || socialEl.textContent === '')) animateVal('c-signup-social', withSocials);
-    if (emailEl  && (emailEl.textContent  === '0' || emailEl.textContent  === '')) animateVal('c-signup-email',  emailOnly);
+    if (totalEl)  animateVal('c-signup-total',  totalSignups);
+    if (socialEl) animateVal('c-signup-social', withSocials);
+    if (emailEl)  animateVal('c-signup-email',  emailOnly);
 
     console.log('[tracking] Tracking card populated successfully');
   } catch(e) {

@@ -673,10 +673,31 @@ function lastNDays(n) {
   return days;
 }
 
+function parseDateForComparison(dateStr) {
+  if (!dateStr) return '';
+  const s = String(dateStr).trim();
+  // If DD/MM/YYYY
+  if (s.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
+    const parts = s.split('/');
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  }
+  // If DD/MM (assume current year)
+  if (s.match(/^\d{2}\/\d{2}$/)) {
+    const parts = s.split('/');
+    const y = new Date().getFullYear();
+    return `${y}-${parts[1]}-${parts[0]}`;
+  }
+  // Standard format
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+  return '';
+}
+
 function filterByDate(arr, start, end) {
   if (!start && !end) return arr;
   return arr.filter(e => {
-    const d = (e.scrapedAt || '').split('T')[0];
+    const d = parseDateForComparison(e.scrapedAt || '');
+    if (!d) return true; // keep if no date
     if (start && d < start) return false;
     if (end && d > end) return false;
     return true;
@@ -982,8 +1003,10 @@ app.get('/api/creator-outreach', authMiddleware, (req, res) => {
   let data = GLOBAL_STATE.creator_outreach || [];
   if (startDate || endDate) {
     data = data.filter(r => {
-      if (startDate && r.date < startDate) return false;
-      if (endDate   && r.date > endDate)   return false;
+      const d = parseDateForComparison(r.date);
+      if (!d) return true;
+      if (startDate && d < startDate) return false;
+      if (endDate   && d > endDate)   return false;
       return true;
     });
   }
