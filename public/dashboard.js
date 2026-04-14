@@ -372,13 +372,17 @@ window.applyCustomRange = function() {
   if (!s || !e) { alert('Please select both start and end dates'); return; }
   
   currentRange = { start: s, end: e, type: 'custom', label: 'Custom Range' };
-  _signupStatsCache = null; // invalidate so signups reload with new date
+  _apiCache.forEach((_, url) => {
+    if (url.includes('influencer-stats') || url.includes('creator-outreach') || url.includes('overview')) {
+      _apiCache.delete(url);
+    }
+  });
   updateDateField();
   document.getElementById('date-menu').classList.add('hidden');
   document.getElementById('date-arrow').style.transform = 'rotate(0deg)';
-  // Reset custom-range-box for next open
   const box = document.getElementById('custom-range-box');
   if (box) box.style.display = 'none';
+  if (typeof window.fetchSignups === 'function') window.fetchSignups();
   poll();
 };
 
@@ -396,10 +400,15 @@ window.applyMobileCustomRange = function() {
   const e = document.getElementById('mob-end-date').value;
   if (!s || !e) { alert('Please select both start and end dates'); return; }
   currentRange = { start: s, end: e, type: 'custom', label: 'Custom Range' };
-  _signupStatsCache = null; // invalidate so signups reload with new date
+  _apiCache.forEach((_, url) => {
+    if (url.includes('influencer-stats') || url.includes('creator-outreach') || url.includes('overview')) {
+      _apiCache.delete(url);
+    }
+  });
   const box = document.getElementById('mob-custom-range');
   if (box) box.style.display = 'none';
   updateDateField();
+  if (typeof window.fetchSignups === 'function') window.fetchSignups();
   poll();
 };
 

@@ -252,7 +252,7 @@
             <a onclick="switchView('ash-tk')" id="nav-ash-tk"
                 class="nav-item group relative flex items-center gap-4 px-4 py-3.5 rounded-r-2xl text-[14px] font-semibold text-zinc-400 transition-all duration-300 hover:bg-white/[0.02] hover:text-white cursor-pointer overflow-hidden">
                 <div class="nav-icon w-8 h-8 rounded-[10px] bg-white/[0.03] border border-white/[0.06] flex items-center justify-center text-lg group-hover:scale-110 group-hover:bg-emerald-500/20 group-hover:border-emerald-500/30 group-active:scale-95 transition-all duration-300 shadow-[0_0_15px_rgba(0,0,0,0.5)] group-hover:shadow-[0_0_15px_rgba(16,185,129,0.4)] text-[#22d3ee]">🔵</div>
-                <span class="group-hover:text-white transition-colors tracking-wide leading-tight">TikTok Scraper <br><span class="text-[11.5px] text-zinc-500 font-medium tracking-normal group-hover:text-zinc-400">ASH</span></span>
+                <span class="group-hover:text-white transition-colors tracking-wide leading-tight">TikTok Scraper <br><span class="text-[11.5px] text-zinc-500 font-medium tracking-normal group-hover:text-zinc-400">Ash</span></span>
             </a>
         </nav>
 
@@ -1161,20 +1161,7 @@
         }
     }
 
-    // Call immediately with "Today" as default (ensures data is never empty on first load)
-    (function() {
-      // Set default range to Today so the very first load shows today's data
-      const now = new Date();
-      const tday = now.getFullYear() + '-' +
-        String(now.getMonth()+1).padStart(2,'0') + '-' +
-        String(now.getDate()).padStart(2,'0');
-      if (typeof currentRange !== 'undefined' && !currentRange.start) {
-        currentRange.start = tday;
-        currentRange.end   = tday;
-        currentRange.type  = 'today';
-        currentRange.label = 'Today';
-      }
-    })();
+    // Call immediately on load (All Time is the default — no date params set)
     fetchSignups();
     window.fetchSignups = fetchSignups;
 
