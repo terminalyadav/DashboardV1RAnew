@@ -1734,7 +1734,8 @@ window.loadTrackingCard = async function() {
   try {
     console.log('[tracking] Loading tracking card data...');
 
-    const data = _signupStatsCache || await fetchInfluencerStats();
+    // Always fetch fresh — _signupStatsCache was removed in favour of fetchWithCache
+    const data = await fetchInfluencerStats();
     if (!data) {
       console.warn('[tracking] No stats data available');
       return;
