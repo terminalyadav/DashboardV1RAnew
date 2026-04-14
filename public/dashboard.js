@@ -9,6 +9,20 @@ let ashTkChart = null;
 
 let currentRange = { start: null, end: null, type: 'all', label: 'All Time' };
 
+// unified caching
+const _apiCache = new Map();
+async function fetchWithCache(url, ttlMs = 60000) {
+  const now = Date.now();
+  if (_apiCache.has(url)) {
+    const { data, ts } = _apiCache.get(url);
+    if (now - ts < ttlMs) return data;
+  }
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const data = await r.json();
+  _apiCache.set(url, { data, ts: now });
+  return data;
+}
 // ─── ISO 3166-1 alpha-2 country code → full name map ───
 const ISO_COUNTRIES = {
   AF:'Afghanistan',AX:'Åland Islands',AL:'Albania',DZ:'Algeria',AS:'American Samoa',
@@ -429,7 +443,7 @@ async function pollCreatorOutreach() {
   try {
     const dp = getDateParams();
     const url = `/api/creator-outreach${dp ? '?' + dp.slice(1) : ''}`;
-    const data = await fetch(url).then(r => r.json());
+    const data = await fetchWithCache(url, 60000);
     creatorOutreachData = Array.isArray(data) ? data : [];
   } catch(e) {
     console.error('pollCreatorOutreach error:', e);
@@ -438,22 +452,22 @@ async function pollCreatorOutreach() {
 }
 
 function poll() {
-  if(view === 'creator') {
-    // For creator view: load chart data first (it updates creatorOutreachData), then stats
-    loadCreatorOutreachChart().then(() => { loadGlobal(); });
-    cLoad();
-    // Re-fetch sign-up KPIs with current date params (inline fetchSignups uses currentRange)
-    if (typeof window.fetchSignups === 'function') window.fetchSignups();
-  } else {
-    // For all other views: silently load outreach totals so global KPIs stay accurate
-    pollCreatorOutreach().then(() => {
-      loadGlobal();
+  // Parallel fetch: load global and outreach simultaneously
+  const pGlobal = loadGlobal();
+  const pOutreach = pollCreatorOutreach();
+
+  Promise.all([pGlobal, pOutreach]).then(() => {
+    if(view === 'creator') {
+      loadCreatorOutreachChart();
+      cLoad();
+      if (typeof window.fetchSignups === 'function') window.fetchSignups();
+    } else {
       if(view === 'brand')  { loadBrandOutreachChart(); bLoad(); }
       if(view === 'afnan')  { loadAfnanChart(); loadAfnanTags(); afLoad('ig'); afLoad('tk'); }
       if(view === 'local')  { loadLocalChart(); loadNicheChart(); loadCountryChart(); sjLoad(); }
       if(view === 'ash-tk') { loadAshTkChart(); loadAshTkData(ashTkState.p); }
-    });
-  }
+    }
+  }).catch(e => console.error("Poll Error:", e));
 }
 
 // ═══════════════════════════════════════════
@@ -461,9 +475,9 @@ function poll() {
 // ═══════════════════════════════════════════
 async function loadGlobal() {
   try {
-    const r = await fetch(`/api/overview?_=${Date.now()}${getDateParams()}`);
-    if(r.status===401) { window.location.href='/'; return; }
-    const d = await r.json();
+    const dp = getDateParams();
+    const url = `/api/overview${dp ? '?' + dp.slice(1) : ''}`;
+    const d = await fetchWithCache(url, 60000);
 
     // Server may return { error: 'warming up' } before GLOBAL_STATE is populated
     if (!d || !d.cloud || !d.local) {
@@ -1489,22 +1503,15 @@ function fmtNum(n) {
 // ═══════════════════════════════════════════
 
 let _modalRows = []; // currently displayed rows (used by downloadModalCSV)
-let _signupStatsCache = null; // cache fetched stats per reload
 
 /** Fetch (or return cached) influencer stats from the server */
 async function fetchInfluencerStats() {
   try {
     const dp = getDateParams();
-    if (_signupStatsCache && _signupStatsCache._dp === dp) return _signupStatsCache;
-
     console.log('[modal] Fetching /api/influencer-stats...', dp);
     const url = `/api/influencer-stats${dp ? '?' + dp.slice(1) : ''}`;
-    const r = await fetch(url);
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const data = await r.json();
-    data._dp = dp;
+    const data = await fetchWithCache(url, 60000);
     console.log('[modal] Got stats:', { total: data.total, with_socials: data.with_socials, email_only: data.email_only, non_converted: data.non_converted_records?.length });
-    _signupStatsCache = data;
     return data;
   } catch(e) {
     console.error('[modal] fetchInfluencerStats error:', e);
@@ -1617,20 +1624,25 @@ window.openDataModal = async function(type) {
   }
 };
 
-/** Render rows into the modal table (2 cols: Name, Email) */
+/** Render rows into the modal table (limit to 100 max to avoid DOM freezing) */
 function renderModalRows(rows, tbody, meta, subtitleEl) {
   if (rows.length === 0) {
     tbody.innerHTML = '<tr><td colspan="2" class="text-center text-zinc-500 py-10">No records found for this filter</td></tr>';
     if (subtitleEl) subtitleEl.textContent = `${meta.subtitle} \u00b7 0 records`;
     return;
   }
-  tbody.innerHTML = rows.map(r =>
+  const maxRows = 100;
+  const displayRows = rows.slice(0, maxRows);
+  tbody.innerHTML = displayRows.map(r =>
     `<tr>
       <td class="font-semibold text-white">${esc(r.name || '\u2014')}</td>
       <td class="font-mono text-xs text-zinc-300">${esc(r.email || '\u2014')}</td>
     </tr>`
   ).join('');
-  if (subtitleEl) subtitleEl.textContent = `${meta.subtitle} \u00b7 ${rows.length.toLocaleString()} records`;
+  if (subtitleEl) {
+    const limText = rows.length > maxRows ? ` (Showing 1st ${maxRows})` : '';
+    subtitleEl.textContent = `${meta.subtitle} \u00b7 ${rows.length.toLocaleString()} records${limText}`;
+  }
 }
 
 /**

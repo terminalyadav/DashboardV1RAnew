@@ -267,9 +267,23 @@ async function syncOutreachSheet() {
 
       // Skip empty rows, summary rows like "Total", or anything that isn't a date
       if (!rawDate || !/\d/.test(rawDate) || /total/i.test(rawDate)) return null;
-      const parts = rawDate.split('/');
+      const parts = rawDate.split(/[-/]/);
       if (parts.length !== 3) return null;
-      const [dd, mm, yyyy] = parts;
+      let dd, mm, yyyy;
+      
+      // Determine if format is YYYY-MM-DD
+      if (parts[0].length === 4) {
+        yyyy = parts[0]; mm = parts[1]; dd = parts[2];
+      } 
+      // Determine if format is MM/DD/YYYY (e.g. 04/14/2026)
+      else if (parseInt(parts[1]) > 12) {
+        mm = parts[0]; dd = parts[1]; yyyy = parts[2];
+      }
+      // Determine if format is DD/MM/YYYY (e.g. 14/04/2026)
+      else {
+        dd = parts[0]; mm = parts[1]; yyyy = parts[2];
+      }
+      
       if (!dd || !mm || !yyyy || yyyy.length !== 4) return null;
 
       return {
@@ -1162,12 +1176,27 @@ app.get(['/api/influencer-stats', '/api/signups'], authMiddleware, async (req, r
     });
 
     const signups = await loadSignups();
-    const total = signups.length;
-    const with_socials = signups.filter(s => Array.isArray(s.social_accounts) && s.social_accounts.length > 0).length;
-    const email_only   = signups.filter(s => !Array.isArray(s.social_accounts) || s.social_accounts.length === 0).length;
+    
+    // Apply date filter
+    const { startDate, endDate } = req.query;
+    let filteredSignups = signups;
+    if (startDate || endDate) {
+      filteredSignups = signups.filter(s => {
+        const raw = s.created_at || s.createdAt || '';
+        if (!raw) return !startDate; // fallback if record missing date
+        const d = String(raw).slice(0, 10);
+        if (startDate && d < startDate) return false;
+        if (endDate   && d > endDate)   return false;
+        return true;
+      });
+    }
+
+    const total = filteredSignups.length;
+    const with_socials = filteredSignups.filter(s => Array.isArray(s.social_accounts) && s.social_accounts.length > 0).length;
+    const email_only   = filteredSignups.filter(s => !Array.isArray(s.social_accounts) || s.social_accounts.length === 0).length;
 
     // Cross-reference: sign-ups whose email exists in our scraped list
-    const matched = signups.filter(s => s.email && scrapedEmails.has(String(s.email).toLowerCase().trim()));
+    const matched = filteredSignups.filter(s => s.email && scrapedEmails.has(String(s.email).toLowerCase().trim()));
     const from_our_emails = matched.length;
 
     // Lightweight mapper for all users
@@ -1177,16 +1206,13 @@ app.get(['/api/influencer-stats', '/api/signups'], authMiddleware, async (req, r
       country: s.locations?.country || '',
       has_socials: Array.isArray(s.social_accounts) && s.social_accounts.length > 0,
       socials: (s.social_accounts || []).map(sa => `${sa.platform}:${sa.username}`).join(', '),
-      // platform_list: lowercase array of connected platforms e.g. ['instagram', 'tiktok']
       platform_list: (s.social_accounts || []).map(sa => (sa.platform || '').toLowerCase()).filter(Boolean)
     });
 
-    // NOTE: V1RA API (/api/email-outreach) does NOT include a date/created_at field.
-    // Signup counts are therefore always all-time totals and cannot be filtered by date.
-    const all_records            = signups.map(mapUser);
+    const all_records            = filteredSignups.map(mapUser);
     const records_from_our_emails = matched.map(mapUser);
 
-    const signupEmails = new Set(signups.map(s => String(s.email).toLowerCase().trim()));
+    const signupEmails = new Set(filteredSignups.map(s => String(s.email).toLowerCase().trim()));
     const outreach = readOutreach();
     const non_converted_records = Object.values(outreach)
       .filter(r => r.email && !signupEmails.has(r.email.toLowerCase().trim()))
