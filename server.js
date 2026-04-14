@@ -1176,10 +1176,14 @@ app.get(['/api/influencer-stats', '/api/signups'], authMiddleware, async (req, r
       email: s.email || '',
       country: s.locations?.country || '',
       has_socials: Array.isArray(s.social_accounts) && s.social_accounts.length > 0,
-      socials: (s.social_accounts || []).map(sa => `${sa.platform}:${sa.username}`).join(', ')
+      socials: (s.social_accounts || []).map(sa => `${sa.platform}:${sa.username}`).join(', '),
+      // platform_list: lowercase array of connected platforms e.g. ['instagram', 'tiktok']
+      platform_list: (s.social_accounts || []).map(sa => (sa.platform || '').toLowerCase()).filter(Boolean)
     });
 
-    const all_records = signups.map(mapUser);
+    // NOTE: V1RA API (/api/email-outreach) does NOT include a date/created_at field.
+    // Signup counts are therefore always all-time totals and cannot be filtered by date.
+    const all_records            = signups.map(mapUser);
     const records_from_our_emails = matched.map(mapUser);
 
     const signupEmails = new Set(signups.map(s => String(s.email).toLowerCase().trim()));
@@ -1188,7 +1192,6 @@ app.get(['/api/influencer-stats', '/api/signups'], authMiddleware, async (req, r
       .filter(r => r.email && !signupEmails.has(r.email.toLowerCase().trim()))
       .map(r => ({ name: r.username || r.name || '', email: r.email }));
 
-    console.log(`Sending signups to frontend: ${total} total, ${from_our_emails} matched`);
     res.json({ total, from_our_emails, with_socials, email_only, all_records, records_from_our_emails, non_converted_records });
   } catch (e) { 
     console.error('API Error /api/signups:', e);

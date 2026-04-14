@@ -82,6 +82,7 @@ function countryFlag(code) {
 // ─── Custom Country Dropdown Logic ───
 
 let _activeCountryCode = ''; // currently selected country filter
+let _activePlatform = '';    // currently selected platform filter
 
 window.toggleCountryDropdown = function() {
   const panel = document.getElementById('country-dropdown-panel');
@@ -134,7 +135,7 @@ window.selectCountry = function(code, btn) {
   if (panel) panel.classList.add('hidden');
   if (arrow) arrow.style.transform = 'rotate(0deg)';
   // Filter rows
-  filterModalByCountry(code);
+  applyModalFilters();
 };
 
 /** Populate the custom country dropdown with a list of {code, name} entries */
@@ -168,6 +169,70 @@ function populateCountryDropdown(rawValues) {
   });
 }
 
+// ─── Platform Dropdown Logic ───
+
+window.togglePlatformDropdown = function() {
+  const panel = document.getElementById('platform-dropdown-panel');
+  const arrow = document.getElementById('platform-dropdown-arrow');
+  if (!panel) return;
+  const isHidden = panel.classList.toggle('hidden');
+  if (arrow) arrow.style.transform = isHidden ? 'rotate(0deg)' : 'rotate(180deg)';
+};
+
+window.selectPlatform = function(plat) {
+  _activePlatform = plat;
+  const label = document.getElementById('platform-dropdown-label');
+  const ICONS = { '': '📱 All Platforms', 'Instagram': '📸 Instagram', 'TikTok': '🎵 TikTok', 'LinkedIn': '💼 LinkedIn' };
+  if (label) label.textContent = ICONS[plat] || plat;
+  // Highlight selected
+  const list = document.getElementById('platform-options-list');
+  if (list) {
+    list.querySelectorAll('button.platform-option').forEach(b => {
+      const isSel = b.dataset.plat === plat;
+      b.style.background = isSel ? 'rgba(99,102,241,0.12)' : '';
+      b.style.color = isSel ? '#a5b4fc' : '';
+    });
+  }
+  // Close panel
+  const panel = document.getElementById('platform-dropdown-panel');
+  const arrow = document.getElementById('platform-dropdown-arrow');
+  if (panel) panel.classList.add('hidden');
+  if (arrow) arrow.style.transform = 'rotate(0deg)';
+  // Re-filter
+  applyModalFilters();
+};
+
+/** Get today's date string in local timezone as YYYY-MM-DD */
+function localDateStr(date) {
+  const d = date || new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Unified filter: applies both country and platform to _modalRows */
+function applyModalFilters() {
+  const tbody = document.getElementById('data-modal-tbody');
+  const subtitleEl = document.getElementById('data-modal-subtitle');
+  const meta = { subtitle: (subtitleEl?.textContent || '').split(' \u00b7 ')[0] };
+  if (!tbody) return;
+  let filtered = _modalRows;
+  if (_activeCountryCode) filtered = filtered.filter(r => (r.country || '') === _activeCountryCode);
+  if (_activePlatform) {
+    const platLower = _activePlatform.toLowerCase();
+    // platform_list is an array of lowercase platform names e.g. ['instagram', 'tiktok']
+    filtered = filtered.filter(r => {
+      const list = r.platform_list;
+      if (Array.isArray(list) && list.length > 0) return list.includes(platLower);
+      // Fallback: check legacy socials string (e.g. 'instagram:@user,tiktok:@user2')
+      const s = (r.socials || '').toLowerCase();
+      return s.includes(platLower);
+    });
+  }
+  renderModalRows(filtered, tbody, meta, subtitleEl);
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   currentRange.start = null;
   currentRange.end = null;
@@ -192,6 +257,14 @@ window.addEventListener('DOMContentLoaded', () => {
     if (cWrap && cPanel && !cWrap.contains(e.target)) {
       cPanel.classList.add('hidden');
       if (cArrow) cArrow.style.transform = 'rotate(0deg)';
+    }
+    // Close platform dropdown when clicking outside
+    const pWrap = document.getElementById('platform-dropdown-wrap');
+    const pPanel = document.getElementById('platform-dropdown-panel');
+    const pArrow = document.getElementById('platform-dropdown-arrow');
+    if (pWrap && pPanel && !pWrap.contains(e.target)) {
+      pPanel.classList.add('hidden');
+      if (pArrow) pArrow.style.transform = 'rotate(0deg)';
     }
   });
 });
@@ -242,13 +315,13 @@ window.setDateFilter = function(type) {
   let start = null, end = null, label = '';
 
   if (type === 'today') {
-    start = now.toISOString().split('T')[0];
+    start = localDateStr(now);
     end = start;
     label = 'Today';
   } else if (type === 'yesterday') {
     const yest = new Date(now);
     yest.setDate(yest.getDate() - 1);
-    start = yest.toISOString().split('T')[0];
+    start = localDateStr(yest);
     end = start;
     label = 'Yesterday';
   } else if (type === 'all') {
@@ -256,6 +329,7 @@ window.setDateFilter = function(type) {
   }
 
   currentRange = { start, end, type, label };
+  _signupStatsCache = null; // invalidate so signups reload with new date
   updateDateField();
   document.getElementById('date-menu').classList.add('hidden');
   document.getElementById('date-arrow').style.transform = 'rotate(0deg)';
@@ -277,6 +351,7 @@ window.applyCustomRange = function() {
   if (!s || !e) { alert('Please select both start and end dates'); return; }
   
   currentRange = { start: s, end: e, type: 'custom', label: 'Custom Range' };
+  _signupStatsCache = null; // invalidate so signups reload with new date
   updateDateField();
   document.getElementById('date-menu').classList.add('hidden');
   document.getElementById('date-arrow').style.transform = 'rotate(0deg)';
@@ -300,6 +375,7 @@ window.applyMobileCustomRange = function() {
   const e = document.getElementById('mob-end-date').value;
   if (!s || !e) { alert('Please select both start and end dates'); return; }
   currentRange = { start: s, end: e, type: 'custom', label: 'Custom Range' };
+  _signupStatsCache = null; // invalidate so signups reload with new date
   const box = document.getElementById('mob-custom-range');
   if (box) box.style.display = 'none';
   updateDateField();
@@ -366,6 +442,8 @@ function poll() {
     // For creator view: load chart data first (it updates creatorOutreachData), then stats
     loadCreatorOutreachChart().then(() => { loadGlobal(); });
     cLoad();
+    // Re-fetch sign-up KPIs with current date params (inline fetchSignups uses currentRange)
+    if (typeof window.fetchSignups === 'function') window.fetchSignups();
   } else {
     // For all other views: silently load outreach totals so global KPIs stay accurate
     pollCreatorOutreach().then(() => {
@@ -1470,10 +1548,19 @@ window.openDataModal = async function(type) {
   if (titleEl)    titleEl.textContent    = meta.title;
   if (subtitleEl) subtitleEl.textContent = meta.subtitle;
 
-  // Reset custom country dropdown
+  // Reset filters
   _activeCountryCode = '';
+  _activePlatform = '';
   const lbl0 = document.getElementById('country-dropdown-label');
   if (lbl0) lbl0.textContent = '\uD83C\uDF0D All Countries';
+  const plbl0 = document.getElementById('platform-dropdown-label');
+  if (plbl0) plbl0.textContent = '\uD83D\uDCF1 All Platforms';
+
+  // Platform filter is only shown for modal types that have social accounts
+  // Never show it for email-only views (no platform data applies)
+  const PLATFORM_FILTER_TYPES = ['total', 'social', 'trk_total', 'trk_social'];
+  const pWrap = document.getElementById('platform-dropdown-wrap');
+  if (pWrap) pWrap.style.display = PLATFORM_FILTER_TYPES.includes(type) ? '' : 'none';
 
   try {
     const data = await fetchInfluencerStats();
@@ -1508,14 +1595,18 @@ window.openDataModal = async function(type) {
 
     console.log(`[modal] type=${type} rows=${rows.length}`);
     _modalRows = rows; // full unfiltered set for this type
-    _activeCountryCode = ''; // reset filter
+    _activeCountryCode = '';
+    _activePlatform = '';
 
-    // Populate custom country dropdown with codes unique to this dataset
+    // Populate custom country dropdown
     const countryCodes = [...new Set(rows.map(r => r.country || '').filter(Boolean))].sort();
     populateCountryDropdown(countryCodes);
-    // Reset dropdown button label
+    // Reset country label
     const lbl = document.getElementById('country-dropdown-label');
     if (lbl) lbl.textContent = '\uD83C\uDF0D All Countries';
+    // Reset platform dropdown options highlight
+    const pList = document.getElementById('platform-options-list');
+    if (pList) pList.querySelectorAll('button.platform-option').forEach(b => { b.style.background = ''; b.style.color = ''; });
 
     if (!tbody) return;
     renderModalRows(rows, tbody, meta, subtitleEl);
@@ -1546,15 +1637,10 @@ function renderModalRows(rows, tbody, meta, subtitleEl) {
  * Client-side country filter (called by selectCountry).
  * Filters _modalRows by country code and re-renders without any API call.
  */
+// filterModalByCountry is kept for backward compat but now delegates to applyModalFilters
 window.filterModalByCountry = function(countryCode) {
-  const tbody = document.getElementById('data-modal-tbody');
-  const subtitleEl = document.getElementById('data-modal-subtitle');
-  const meta = { subtitle: (subtitleEl?.textContent || '').split(' \u00b7 ')[0] };
-  if (!tbody) return;
-  const filtered = countryCode
-    ? _modalRows.filter(r => (r.country || '') === countryCode)
-    : _modalRows;
-  renderModalRows(filtered, tbody, meta, subtitleEl);
+  _activeCountryCode = countryCode;
+  applyModalFilters();
 };
 
 window.closeDataModal = function() {
@@ -1569,13 +1655,21 @@ window.closeDataModal = function() {
   if (panel) panel.classList.add('hidden');
   if (arrow) arrow.style.transform = 'rotate(0deg)';
   if (lbl) lbl.textContent = '\uD83C\uDF0D All Countries';
+  // Reset platform dropdown
+  _activePlatform = '';
+  const pPanel = document.getElementById('platform-dropdown-panel');
+  const pArrow = document.getElementById('platform-dropdown-arrow');
+  const pLbl   = document.getElementById('platform-dropdown-label');
+  if (pPanel) pPanel.classList.add('hidden');
+  if (pArrow) pArrow.style.transform = 'rotate(0deg)';
+  if (pLbl)   pLbl.textContent = '\uD83D\uDCF1 All Platforms';
 };
 
 /** Download current modal rows as a CSV (exports filtered set if country active, else all) */
 window.downloadModalCSV = function() {
-  const exportRows = _activeCountryCode
-    ? _modalRows.filter(r => (r.country || '') === _activeCountryCode)
-    : _modalRows;
+  let exportRows = _modalRows;
+  if (_activeCountryCode) exportRows = exportRows.filter(r => (r.country || '') === _activeCountryCode);
+  if (_activePlatform)    exportRows = exportRows.filter(r => (r.platform || '') === _activePlatform);
   if (!exportRows || exportRows.length === 0) { alert('No data to export'); return; }
   const lines = ['Name,Email'];
   exportRows.forEach(r => {
