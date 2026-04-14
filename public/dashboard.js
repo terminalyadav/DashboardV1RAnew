@@ -343,13 +343,20 @@ window.setDateFilter = function(type) {
   }
 
   currentRange = { start, end, type, label };
-  _signupStatsCache = null; // invalidate so signups reload with new date
+  // Bust ALL date-sensitive cached API calls so first click always returns fresh data
+  _apiCache.forEach((_, url) => {
+    if (url.includes('influencer-stats') || url.includes('creator-outreach') || url.includes('overview')) {
+      _apiCache.delete(url);
+    }
+  });
   updateDateField();
   document.getElementById('date-menu').classList.add('hidden');
   document.getElementById('date-arrow').style.transform = 'rotate(0deg)';
   // Close mobile custom range if open
   const mobBox = document.getElementById('mob-custom-range');
   if (mobBox) mobBox.style.display = 'none';
+  // Immediately run fetchSignups so signup KPIs update on first click without waiting for poll
+  if (typeof window.fetchSignups === 'function') window.fetchSignups();
   poll();
 };
 
