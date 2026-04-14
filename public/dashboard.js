@@ -971,7 +971,7 @@ async function loadCreatorOutreachChart() {
   try {
     const dp = getDateParams();
     const url = `/api/creator-outreach${dp ? '?' + dp.slice(1) : ''}`;
-    const data = await fetch(url).then(r => r.json());
+    const data = await fetchWithCache(url, 60000);
     creatorOutreachData = Array.isArray(data) ? data : [];
 
     // ── Directly update all KPI cards from Tracking sheet columns ──

@@ -1134,13 +1134,18 @@ app.post('/api/mark-replied', authMiddleware, (req, res) => {
 // Fetches live creator sign-up data and cross-references
 // with all scraped emails to measure outreach→signup conversion.
 
+let signupsCache = { data: [], last_fetch: 0 };
 async function loadSignups() {
   try {
+    const now = Date.now();
+    if (signupsCache.data.length > 0 && now - signupsCache.last_fetch < 60000) {
+      return signupsCache.data;
+    }
     console.log('[DEBUG] Calling loadSignups() (single fetch, API caps at 1000)...');
     const response = await fetch('https://app.v1ra.com/api/email-outreach');
     if (!response.ok) {
       console.error('Failed to fetch signups from API. Status:', response.status);
-      return [];
+      return signupsCache.data;
     }
     const parsed = await response.json();
     const raw = Array.isArray(parsed) ? parsed : (parsed.data || []);
@@ -1155,10 +1160,11 @@ async function loadSignups() {
       return true;
     });
     console.log(`[DEBUG] loadSignups() complete: ${signups.length} unique signups`);
+    signupsCache = { data: signups, last_fetch: now };
     return signups;
   } catch (e) {
     console.error('loadSignups error fetching from API:', e.message);
-    return [];
+    return signupsCache.data;
   }
 }
 
