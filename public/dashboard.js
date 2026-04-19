@@ -339,8 +339,8 @@ window.setDateFilter = function(type) {
   const mobBox = document.getElementById('mob-custom-range');
   if (mobBox) mobBox.style.display = 'none';
   // Immediately run fetchSignups so signup KPIs update on first click without waiting for poll
-  if (typeof window.fetchSignups === 'function') window.fetchSignups();
-  poll();
+  // Immediately run fetchSignups so signup KPIs update on first click without waiting for poll
+  triggerFilterRefresh();
 };
 
 window.showCustomRange = function() {
@@ -365,8 +365,7 @@ window.applyCustomRange = function() {
   document.getElementById('date-arrow').style.transform = 'rotate(0deg)';
   const box = document.getElementById('custom-range-box');
   if (box) box.style.display = 'none';
-  if (typeof window.fetchSignups === 'function') window.fetchSignups();
-  poll();
+  triggerFilterRefresh();
 };
 
 // ─── MOBILE DATE RANGE ───
@@ -391,8 +390,7 @@ window.applyMobileCustomRange = function() {
   const box = document.getElementById('mob-custom-range');
   if (box) box.style.display = 'none';
   updateDateField();
-  if (typeof window.fetchSignups === 'function') window.fetchSignups();
-  poll();
+  triggerFilterRefresh();
 };
 
 function updateDateField() {
@@ -450,23 +448,41 @@ async function pollCreatorOutreach() {
   }
 }
 
+let _filterTimeout = null;
+function triggerFilterRefresh() {
+  if (_filterTimeout) clearTimeout(_filterTimeout);
+  _filterTimeout = setTimeout(() => {
+    // Show visual skeleton loaders locally before the fetch hits the network
+    showGlobalLoaders(); 
+    if (typeof window.fetchSignups === 'function') window.fetchSignups();
+    poll();
+  }, 350);
+}
+
+function showGlobalLoaders() {
+  // Gracefully clear KPI values with pulse animations
+  document.querySelectorAll('[id$="-em"], [id$="-sent"], [id$="-rep"], [id$="-acc"], [id$="-users"], [id$="-scraped"], [id$="-total"], [id^="trk-"]').forEach(el => {
+    el.innerHTML = '<span class="animate-pulse text-zinc-600">...</span>';
+  });
+}
+
 function poll() {
   // Parallel fetch: load global and outreach simultaneously
   const pGlobal = loadGlobal();
   const pOutreach = pollCreatorOutreach();
 
-  Promise.all([pGlobal, pOutreach]).then(() => {
-    if(view === 'creator') {
-      loadCreatorOutreachChart();
-      cLoad();
-      if (typeof window.fetchSignups === 'function') window.fetchSignups();
-    } else {
-      if(view === 'brand')  { loadBrandOutreachChart(); bLoad(); }
-      if(view === 'afnan')  { loadAfnanChart(); loadAfnanTags(); afLoad('ig'); afLoad('tk'); }
-      if(view === 'local')  { loadLocalChart(); loadNicheChart(); loadCountryChart(); sjLoad(); }
-      if(view === 'ash-tk') { loadAshTkChart(); loadAshTkData(ashTkState.p); }
-    }
-  }).catch(e => console.error("Poll Error:", e));
+  // Do not block render with Promise.all! Link renders dynamically to their individual fetches.
+  if(view === 'creator') {
+    pOutreach.then(() => { loadCreatorOutreachChart(); cLoad(); }).catch(e => console.error(e));
+  } else if(view === 'brand')  {
+    pGlobal.then(() => { loadBrandOutreachChart(); bLoad(); }).catch(e => console.error(e));
+  } else if(view === 'afnan')  {
+    pGlobal.then(() => { loadAfnanChart(); loadAfnanTags(); afLoad('ig'); afLoad('tk'); }).catch(e => console.error(e));
+  } else if(view === 'local')  {
+    pGlobal.then(() => { loadLocalChart(); loadNicheChart(); loadCountryChart(); sjLoad(); }).catch(e => console.error(e));
+  } else if(view === 'ash-tk') {
+    pGlobal.then(() => { loadAshTkChart(); loadAshTkData(ashTkState.p); }).catch(e => console.error(e));
+  }
 }
 
 // ═══════════════════════════════════════════

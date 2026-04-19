@@ -18,20 +18,40 @@ app.use(express.json());
 app.use(cookieParser());
 app.use('/public', express.static(path.join(__dirname, 'public'), { maxAge: 0, etag: false }));
 
-// ─── Vercel Serverless: lazy data refresh ───
+// ─── Vercel Serverless: Edge Caching & lazy data refresh ───
 const isVercel = !!process.env.VERCEL;
 let lastRefresh = 0;
+let isRefreshing = false;
 const REFRESH_TTL = 60 * 1000;
+
 async function ensureFreshData() {
-  if (Date.now() - lastRefresh > REFRESH_TTL) {
-    lastRefresh = Date.now();
-    await refreshGlobalData();
+  if (Date.now() - lastRefresh > REFRESH_TTL && !isRefreshing) {
+    isRefreshing = true;
+    try {
+      await refreshGlobalData();
+      lastRefresh = Date.now();
+    } catch (e) {
+      console.error('ensureFreshData error:', e);
+    } finally {
+      isRefreshing = false;
+    }
   }
 }
+
 if (isVercel) {
-  app.use('/api/', async (req, res, next) => {
-    try { await ensureFreshData(); } catch(e) { console.error('ensureFreshData error:', e); }
-    next();
+  app.use('/api/', (req, res, next) => {
+    // Inject Vercel Edge Caching Headers to amortize cold starts fully
+    res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=86400');
+    
+    // If the memory state is empty (cold boot), we must block to generate initial state.
+    // However, thanks to the Edge Cache, this block only affects the absolute first hit globally.
+    if (!GLOBAL_STATE.overview) {
+      ensureFreshData().then(() => next()).catch(() => next());
+    } else {
+      // If we have local state, fire background refresh non-blockingly!
+      ensureFreshData();
+      next();
+    }
   });
 }
 
@@ -104,12 +124,24 @@ const PORT         = process.env.PORT         || 3000;
 const SESSION_DIR  = SCRAPPER_DIR;
 
 let mongoClient = null;
+let indexesCreated = false;
 async function getMongo() {
   if (!mongoClient) {
     mongoClient = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 5000 });
     await mongoClient.connect();
   }
-  return mongoClient.db('sanjeevo');
+  const db = mongoClient.db('sanjeevo');
+  if (!indexesCreated) {
+    indexesCreated = true;
+    Promise.all([
+      db.collection('accountdetails').createIndex({ createdAt: -1 }),
+      db.collection('accountdetails').createIndex({ "emails.0": 1, createdAt: -1 }),
+      db.collection('accountdetails').createIndex({ "locations.country": 1 }),
+      db.collection('accountdetails').createIndex({ "social_accounts.platform": 1 }),
+      db.collection('discoveredusers').createIndex({ createdAt: -1 })
+    ]).catch(e => console.error('MongoDB Index Creation Warning:', e.message));
+  }
+  return db;
 }
 
 // ─── Helpers ───
