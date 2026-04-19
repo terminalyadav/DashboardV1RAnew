@@ -559,11 +559,11 @@
                                     <div class="text-2xl font-extrabold text-blue-300" id="trk-sent">0</div>
                                 </div>
                                 <div class="bg-lime-500/5 border border-lime-500/20 rounded-xl p-4 text-center cursor-pointer hover:bg-lime-500/10 transition-colors" onclick="openDataModal('trk_social')">
-                                    <div class="text-[10px] font-black text-lime-400/70 uppercase tracking-widest mb-1 flex items-center justify-center gap-1">With Socials <span class="text-[9px] text-lime-400/50">↗</span></div>
+                                    <div class="text-[10px] font-black text-lime-400/70 uppercase tracking-widest mb-1 flex items-center justify-center gap-1">Total Signups with Socials <span class="text-[9px] text-lime-400/50">↗</span></div>
                                     <div class="text-2xl font-extrabold text-lime-300" id="trk-social">0</div>
                                 </div>
                                 <div class="bg-fuchsia-500/5 border border-fuchsia-500/20 rounded-xl p-4 text-center cursor-pointer hover:bg-fuchsia-500/10 transition-colors" onclick="openDataModal('trk_email')">
-                                    <div class="text-[10px] font-black text-fuchsia-400/70 uppercase tracking-widest mb-1 flex items-center justify-center gap-1">Email Only <span class="text-[9px] text-fuchsia-400/50">↗</span></div>
+                                    <div class="text-[10px] font-black text-fuchsia-400/70 uppercase tracking-widest mb-1 flex items-center justify-center gap-1">Email Only Signups <span class="text-[9px] text-fuchsia-400/50">↗</span></div>
                                     <div class="text-2xl font-extrabold text-fuchsia-300" id="trk-email">0</div>
                                 </div>
                             </div>
@@ -836,7 +836,7 @@
             <!-- ═══════════════════════════════════════════ -->
             <div id="view-local" class="view-section flex flex-col gap-6 md:gap-8 max-w-7xl mx-auto">
                 <div class="flex items-center justify-between mb-2 border-b border-white/[0.05] pb-6">
-                    <h2 class="font-heading text-2xl md:text-3xl font-bold text-white tracking-tight">Local Scraper – #Sandhya IG</h2>
+                    <h2 class="font-heading text-2xl md:text-3xl font-bold text-white tracking-tight">Local Scraper – Sanjeev IG</h2>
                 </div>
 
                 <!-- Key Metrics -->
@@ -897,7 +897,7 @@
                 <!-- Data Table -->
                 <div class="glass-panel p-6 md:p-8 flex flex-col">
                     <div class="flex items-center justify-between mb-6">
-                        <h3 class="font-heading text-xl font-bold text-white flex items-center gap-2">🔍 #Sandhya IG Data</h3>
+                        <h3 class="font-heading text-xl font-bold text-white flex items-center gap-2">🔍 Sanjeev IG Data</h3>
                         <span class="text-xs font-mono text-zinc-500 bg-white/5 px-3 py-1.5 rounded-lg border border-white/10" id="sj-table-stats">0 records</span>
                     </div>
                     <div class="premium-table-wrap scx">
@@ -1087,9 +1087,13 @@
                                     class="platform-option w-full text-left px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-white/5 hover:text-white transition-colors flex items-center gap-2">
                                     🎵 TikTok
                                 </button>
-                                <button type="button" data-plat="LinkedIn" onclick="selectPlatform('LinkedIn')"
+                                <button type="button" data-plat="YouTube" onclick="selectPlatform('YouTube')"
                                     class="platform-option w-full text-left px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-white/5 hover:text-white transition-colors flex items-center gap-2">
-                                    💼 LinkedIn
+                                    ▶️ YouTube
+                                </button>
+                                <button type="button" data-plat="X (Twitter)" onclick="selectPlatform('X (Twitter)')"
+                                    class="platform-option w-full text-left px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-white/5 hover:text-white transition-colors flex items-center gap-2">
+                                    𝕏 X (Twitter)
                                 </button>
                             </div>
                         </div>
@@ -1111,14 +1115,16 @@
                         <thead>
                             <tr>
                                 <th>Name</th>
+                                <th>Platform</th>
                                 <th>Email</th>
                             </tr>
                         </thead>
                         <tbody id="data-modal-tbody">
-                            <tr><td colspan="2" class="text-center text-zinc-600 py-8">Loading...</td></tr>
+                            <tr><td colspan="3" class="text-center text-zinc-600 py-8">Loading...</td></tr>
                         </tbody>
                     </table>
                 </div>
+                <div class="pag-wrap mt-4 flex justify-center gap-2" id="data-modal-pag"></div>
             </div>
         </div>
     </div>

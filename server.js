@@ -1171,12 +1171,9 @@ async function loadSignups() {
 app.get(['/api/influencer-stats', '/api/signups'], authMiddleware, async (req, res) => {
   console.log('[DEBUG] Hit signups endpoint!', req.originalUrl);
   try {
-    // Build Set of all scraped emails from memory (already normalised)
     const scrapedEmails = new Set();
-    console.log('[DEBUG] Global state creator length:', GLOBAL_STATE.global_creator?.length);
     [...(GLOBAL_STATE.global_creator || []), ...(GLOBAL_STATE.global_brand || [])].forEach(r => {
       if (r.email) {
-        // Use try catch just in case email is not a valid string
         try { scrapedEmails.add(String(r.email).toLowerCase().trim()); } catch(e) {}
       }
     });
@@ -1201,33 +1198,103 @@ app.get(['/api/influencer-stats', '/api/signups'], authMiddleware, async (req, r
     const with_socials = filteredSignups.filter(s => Array.isArray(s.social_accounts) && s.social_accounts.length > 0).length;
     const email_only   = filteredSignups.filter(s => !Array.isArray(s.social_accounts) || s.social_accounts.length === 0).length;
 
-    // Cross-reference: sign-ups whose email exists in our scraped list
     const matched = filteredSignups.filter(s => s.email && scrapedEmails.has(String(s.email).toLowerCase().trim()));
     const from_our_emails = matched.length;
+    const trk_social = matched.filter(s => Array.isArray(s.social_accounts) && s.social_accounts.length > 0).length;
+    const trk_email = matched.filter(s => !Array.isArray(s.social_accounts) || s.social_accounts.length === 0).length;
 
-    // Lightweight mapper for all users
+    // Collect country codes for dropdown
+    const countryCodes = [...new Set(filteredSignups.map(s => s.locations?.country).filter(Boolean))].sort();
+
+    res.json({ total, from_our_emails, with_socials, email_only, trk_social, trk_email, countryCodes });
+  } catch (e) { 
+    console.error('API Error /api/signups:', e);
+    res.status(500).json({ error: e.message }); 
+  }
+});
+
+app.get('/api/influencer-details', authMiddleware, async (req, res) => {
+  try {
+    const { startDate, endDate, type, platform, country } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    
+    const scrapedEmails = new Set();
+    [...(GLOBAL_STATE.global_creator || []), ...(GLOBAL_STATE.global_brand || [])].forEach(r => {
+      if (r.email) {
+        try { scrapedEmails.add(String(r.email).toLowerCase().trim()); } catch(e) {}
+      }
+    });
+
+    const signups = await loadSignups();
+    
+    let rows = signups;
+    if (startDate || endDate) {
+      rows = rows.filter(s => {
+        const raw = s.created_at || s.createdAt || '';
+        if (!raw) return !startDate;
+        const d = String(raw).slice(0, 10);
+        if (startDate && d < startDate) return false;
+        if (endDate   && d > endDate)   return false;
+        return true;
+      });
+    }
+
+    const signupEmails = new Set(rows.map(s => String(s.email).toLowerCase().trim()));
+    const outreach = readOutreach();
+    
+    if (type === 'non_converted') {
+      rows = Object.values(outreach)
+        .filter(r => r.email && !signupEmails.has(r.email.toLowerCase().trim()))
+        .map(r => ({ name: r.username || r.name || '', email: r.email }));
+    } else {
+      if (type === 'social') rows = rows.filter(s => Array.isArray(s.social_accounts) && s.social_accounts.length > 0);
+      else if (type === 'email') rows = rows.filter(s => !Array.isArray(s.social_accounts) || s.social_accounts.length === 0);
+      else if (type === 'trk_total') rows = rows.filter(s => s.email && scrapedEmails.has(String(s.email).toLowerCase().trim()));
+      else if (type === 'trk_social') rows = rows.filter(s => s.email && scrapedEmails.has(String(s.email).toLowerCase().trim()) && Array.isArray(s.social_accounts) && s.social_accounts.length > 0);
+      else if (type === 'trk_email') rows = rows.filter(s => s.email && scrapedEmails.has(String(s.email).toLowerCase().trim()) && (!Array.isArray(s.social_accounts) || s.social_accounts.length === 0));
+
+      if (country) rows = rows.filter(s => (s.locations?.country || '') === country);
+      if (platform) {
+        const platLower = platform.toLowerCase();
+        rows = rows.filter(s => {
+          const list = (s.social_accounts || []).map(sa => (sa.platform || '').toLowerCase());
+          return list.includes(platLower);
+        });
+      }
+    }
+
+    const total = rows.length;
+    const startIndex = (page - 1) * limit;
+    const paginated = rows.slice(startIndex, startIndex + limit);
+
     const mapUser = s => ({
       name: s.name || '',
       email: s.email || '',
       country: s.locations?.country || '',
       has_socials: Array.isArray(s.social_accounts) && s.social_accounts.length > 0,
       socials: (s.social_accounts || []).map(sa => `${sa.platform}:${sa.username}`).join(', '),
-      platform_list: (s.social_accounts || []).map(sa => (sa.platform || '').toLowerCase()).filter(Boolean)
+      platforms_details: (s.social_accounts || []).map(sa => {
+        let url = sa.profile_url || sa.url;
+        if (!url && sa.username) {
+            let platLower = (sa.platform || '').toLowerCase();
+            // clean leading @ if any for standard prefixing
+            let cleanUn = String(sa.username).replace(/^@/, '');
+            if (platLower.includes('instagram')) url = `https://instagram.com/${cleanUn}`;
+            else if (platLower.includes('tiktok')) url = `https://tiktok.com/@${cleanUn}`;
+            else if (platLower.includes('youtube')) url = `https://youtube.com/@${cleanUn}`;
+            else if (platLower.includes('twitter') || platLower === 'x') url = `https://x.com/${cleanUn}`;
+        }
+        return { platform: sa.platform, profile_url: url };
+      })
     });
 
-    const all_records            = filteredSignups.map(mapUser);
-    const records_from_our_emails = matched.map(mapUser);
+    const mappedRows = type === 'non_converted' ? paginated : paginated.map(mapUser);
 
-    const signupEmails = new Set(filteredSignups.map(s => String(s.email).toLowerCase().trim()));
-    const outreach = readOutreach();
-    const non_converted_records = Object.values(outreach)
-      .filter(r => r.email && !signupEmails.has(r.email.toLowerCase().trim()))
-      .map(r => ({ name: r.username || r.name || '', email: r.email }));
-
-    res.json({ total, from_our_emails, with_socials, email_only, all_records, records_from_our_emails, non_converted_records });
-  } catch (e) { 
-    console.error('API Error /api/signups:', e);
-    res.status(500).json({ error: e.message }); 
+    res.json({ rows: mappedRows, total, page, limit });
+  } catch (e) {
+    console.error('API Error /api/influencer-details:', e);
+    res.status(500).json({ error: e.message });
   }
 });
 

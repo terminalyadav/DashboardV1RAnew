@@ -196,7 +196,7 @@ window.togglePlatformDropdown = function() {
 window.selectPlatform = function(plat) {
   _activePlatform = plat;
   const label = document.getElementById('platform-dropdown-label');
-  const ICONS = { '': '📱 All Platforms', 'Instagram': '📸 Instagram', 'TikTok': '🎵 TikTok', 'LinkedIn': '💼 LinkedIn' };
+  const ICONS = { '': '📱 All Platforms', 'Instagram': '📸 Instagram', 'TikTok': '🎵 TikTok', 'YouTube': '▶️ YouTube', 'X (Twitter)': '𝕏 X (Twitter)' };
   if (label) label.textContent = ICONS[plat] || plat;
   // Highlight selected
   const list = document.getElementById('platform-options-list');
@@ -212,8 +212,8 @@ window.selectPlatform = function(plat) {
   const arrow = document.getElementById('platform-dropdown-arrow');
   if (panel) panel.classList.add('hidden');
   if (arrow) arrow.style.transform = 'rotate(0deg)';
-  // Re-filter
-  applyModalFilters();
+  // Re-filter with pagination
+  if (typeof window.loadModalData === 'function') window.loadModalData(1);
 };
 
 /** Get today's date string in local timezone as YYYY-MM-DD */
@@ -227,24 +227,7 @@ function localDateStr(date) {
 
 /** Unified filter: applies both country and platform to _modalRows */
 function applyModalFilters() {
-  const tbody = document.getElementById('data-modal-tbody');
-  const subtitleEl = document.getElementById('data-modal-subtitle');
-  const meta = { subtitle: (subtitleEl?.textContent || '').split(' \u00b7 ')[0] };
-  if (!tbody) return;
-  let filtered = _modalRows;
-  if (_activeCountryCode) filtered = filtered.filter(r => (r.country || '') === _activeCountryCode);
-  if (_activePlatform) {
-    const platLower = _activePlatform.toLowerCase();
-    // platform_list is an array of lowercase platform names e.g. ['instagram', 'tiktok']
-    filtered = filtered.filter(r => {
-      const list = r.platform_list;
-      if (Array.isArray(list) && list.length > 0) return list.includes(platLower);
-      // Fallback: check legacy socials string (e.g. 'instagram:@user,tiktok:@user2')
-      const s = (r.socials || '').toLowerCase();
-      return s.includes(platLower);
-    });
-  }
-  renderModalRows(filtered, tbody, meta, subtitleEl);
+  if (typeof window.loadModalData === 'function') window.loadModalData(1);
 }
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -1470,10 +1453,11 @@ function renderPag(tot, lim, cur, id, cb) {
   if(pages<=1) return;
   
   const createBtn = (text, targetPage, disabled = false) => {
+    const isEllipsis = text === '...';
     const b = document.createElement('button');
     b.className = 'px-3 py-1.5 rounded-lg text-xs font-mono transition-all duration-200 cursor-pointer border ' + 
-      (disabled ? 'bg-white/5 text-zinc-600 border-transparent cursor-not-allowed opacity-50' : 
-                  (targetPage === cur ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' : 
+      (disabled ? (isEllipsis ? 'bg-transparent text-zinc-500 border-transparent cursor-default' : 'bg-white/5 text-zinc-600 border-transparent cursor-not-allowed opacity-50') : 
+                  (targetPage === cur && !isEllipsis ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' : 
                                         'bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10 hover:text-white'));
     b.innerText = text;
     if(!disabled) b.onclick = () => cb(targetPage);
@@ -1483,8 +1467,22 @@ function renderPag(tot, lim, cur, id, cb) {
   createBtn('«', 1, cur === 1);
   createBtn('‹', cur - 1, cur === 1);
 
+  if (cur > 3) {
+    createBtn(1, 1);
+    if (cur > 4) {
+      createBtn('...', cur, true);
+    }
+  }
+
   for(let i=Math.max(1,cur-2); i<=Math.min(pages,cur+2); i++) {
     createBtn(i, i);
+  }
+
+  if (cur < pages - 2) {
+    if (cur < pages - 3) {
+      createBtn('...', cur, true);
+    }
+    createBtn(pages, pages);
   }
 
   createBtn('›', cur + 1, cur === pages);
@@ -1535,137 +1533,134 @@ async function fetchInfluencerStats() {
   }
 }
 
-/**
- * Open the data modal for the given type:
- *   'total'         → all signed-up users
- *   'social'        → users with social accounts linked
- *   'email'         → email-only sign-ups
- *   'trk_social'    → users from our emails who linked socials
- *   'trk_email'     → users from our emails who signed up email-only
- *   'non_converted' → people we emailed who never signed up
- */
-window.openDataModal = async function(type) {
-  // Show modal immediately in loading state
-  const modal = document.getElementById('data-modal');
+let modalState = { p: 1, limit: 50, type: '' };
+
+window.loadModalData = async function(page) {
+  modalState.p = page;
   const tbody = document.getElementById('data-modal-tbody');
-  const titleEl = document.getElementById('data-modal-title');
   const subtitleEl = document.getElementById('data-modal-subtitle');
-
-  if (!modal) { console.error('[modal] #data-modal not found'); return; }
-  modal.style.display = 'flex';
-  document.body.style.overflow = 'hidden';
-
-  if (tbody) tbody.innerHTML = '<tr><td colspan="2" class="text-center text-zinc-500 py-10"><span class="inline-block animate-pulse">⏳ Loading...</span></td></tr>';
-
-  // Map type → title/subtitle
-  const META = {
-    total:         { title: '📝 Total Sign-ups',          subtitle: 'All users who created a V1RA account' },
-    social:        { title: '🌐 Social Sign-ups',         subtitle: 'Users who linked at least one social account' },
-    email:         { title: '✉️ Email-Only Sign-ups',     subtitle: 'Users who signed up with email only (no socials)' },
-    trk_total:     { title: '📧 All Sign-ups from Our Emails', subtitle: 'Everyone who signed up after we emailed them' },
-    trk_social:    { title: '🌐 Social — From Our Emails',    subtitle: 'Users we emailed who signed up & linked socials' },
-    trk_email:     { title: '✉️ Email-Only — From Our Emails', subtitle: 'Users we emailed who signed up via email only' },
-    non_converted: { title: '🚫 Non-Converted Emails',   subtitle: 'People we emailed who have NOT signed up yet' },
-  };
-  const meta = META[type] || { title: 'Details', subtitle: '' };
-  if (titleEl)    titleEl.textContent    = meta.title;
-  if (subtitleEl) subtitleEl.textContent = meta.subtitle;
-
-  // Reset filters
-  _activeCountryCode = '';
-  _activePlatform = '';
-  const lbl0 = document.getElementById('country-dropdown-label');
-  if (lbl0) lbl0.textContent = '\uD83C\uDF0D All Countries';
-  const plbl0 = document.getElementById('platform-dropdown-label');
-  if (plbl0) plbl0.textContent = '\uD83D\uDCF1 All Platforms';
-
-  // Platform filter is only shown for modal types that have social accounts
-  // Never show it for email-only views (no platform data applies)
-  const PLATFORM_FILTER_TYPES = ['total', 'social', 'trk_total', 'trk_social'];
-  const pWrap = document.getElementById('platform-dropdown-wrap');
-  if (pWrap) pWrap.style.display = PLATFORM_FILTER_TYPES.includes(type) ? '' : 'none';
-
+  if (tbody) tbody.innerHTML = '<tr><td colspan="3" class="text-center text-zinc-500 py-10"><span class="inline-block animate-pulse">⏳ Loading...</span></td></tr>';
+  
   try {
-    const data = await fetchInfluencerStats();
-    if (!data) throw new Error('Failed to fetch stats');
+    const dp = getDateParams();
+    let url = `/api/influencer-details?type=${encodeURIComponent(modalState.type)}&page=${modalState.p}&limit=${modalState.limit}`;
+    if (dp) url += '&' + dp.slice(1);
+    if (_activeCountryCode) url += `&country=${encodeURIComponent(_activeCountryCode)}`;
+    if (_activePlatform) url += `&platform=${encodeURIComponent(_activePlatform)}`;
 
-    let rows = [];
-    switch (type) {
-      case 'total':
-        rows = (data.all_records || []);
-        break;
-      case 'social':
-        rows = (data.all_records || []).filter(r => r.has_socials);
-        break;
-      case 'email':
-        rows = (data.all_records || []).filter(r => !r.has_socials);
-        break;
-      case 'trk_total':
-        rows = (data.records_from_our_emails || []);
-        break;
-      case 'trk_social':
-        rows = (data.records_from_our_emails || []).filter(r => r.has_socials);
-        break;
-      case 'trk_email':
-        rows = (data.records_from_our_emails || []).filter(r => !r.has_socials);
-        break;
-      case 'non_converted':
-        rows = (data.non_converted_records || []);
-        break;
-      default:
-        rows = [];
-    }
-
-    console.log(`[modal] type=${type} rows=${rows.length}`);
-    _modalRows = rows; // full unfiltered set for this type
-    _activeCountryCode = '';
-    _activePlatform = '';
-
-    // Populate custom country dropdown
-    const countryCodes = [...new Set(rows.map(r => r.country || '').filter(Boolean))].sort();
-    populateCountryDropdown(countryCodes);
-    // Reset country label
-    const lbl = document.getElementById('country-dropdown-label');
-    if (lbl) lbl.textContent = '\uD83C\uDF0D All Countries';
-    // Reset platform dropdown options highlight
-    const pList = document.getElementById('platform-options-list');
-    if (pList) pList.querySelectorAll('button.platform-option').forEach(b => { b.style.background = ''; b.style.color = ''; });
+    const r = await fetch(url);
+    const data = await r.json();
 
     if (!tbody) return;
-    renderModalRows(rows, tbody, meta, subtitleEl);
+    
+    const META = {
+      total:         { subtitle: 'All users who created a V1RA account' },
+      social:        { subtitle: 'Users who linked at least one social account' },
+      email:         { subtitle: 'Users who signed up with email only (no socials)' },
+      trk_total:     { subtitle: 'Everyone who signed up after we emailed them' },
+      trk_social:    { subtitle: 'Users we emailed who signed up & linked socials' },
+      trk_email:     { subtitle: 'Users we emailed who signed up via email only' },
+      non_converted: { subtitle: 'People we emailed who have NOT signed up yet' },
+    };
+    const meta = META[modalState.type] || { subtitle: '' };
 
-  } catch(e) {
-    console.error('[modal] openDataModal error:', e);
+    renderModalRows(data.rows, tbody, meta, subtitleEl, data.total);
+    renderPag(data.total, data.limit, modalState.p, 'data-modal-pag', p => window.loadModalData(p));
+  } catch (e) {
+    console.error('[modal] loadModalData error:', e);
     if (tbody) tbody.innerHTML = `<tr><td colspan="3" class="text-center text-red-400 py-10">❌ Error: ${esc(e.message)}</td></tr>`;
   }
 };
 
-/** Render rows into the modal table (limit to 100 max to avoid DOM freezing) */
-function renderModalRows(rows, tbody, meta, subtitleEl) {
-  if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="2" class="text-center text-zinc-500 py-10">No records found for this filter</td></tr>';
+window.openDataModal = async function(type) {
+  const modal = document.getElementById('data-modal');
+  const titleEl = document.getElementById('data-modal-title');
+  const pagDiv = document.getElementById('data-modal-pag');
+
+  if (!modal) { console.error('[modal] #data-modal not found'); return; }
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  if (pagDiv) pagDiv.innerHTML = '';
+
+  const META = {
+    total:         { title: '📝 Total Sign-ups' },
+    social:        { title: '🌐 Social Sign-ups' },
+    email:         { title: '✉️ Email-Only Sign-ups' },
+    trk_total:     { title: '📧 All Sign-ups from Our Emails' },
+    trk_social:    { title: '🌐 Social — From Our Emails' },
+    trk_email:     { title: '✉️ Email-Only — From Our Emails' },
+    non_converted: { title: '🚫 Non-Converted Emails' },
+  };
+  const meta = META[type] || { title: 'Details' };
+  if (titleEl) titleEl.textContent = meta.title;
+
+  _activeCountryCode = '';
+  _activePlatform = '';
+  modalState.type = type;
+  modalState.p = 1;
+
+  const lbl0 = document.getElementById('country-dropdown-label');
+  if (lbl0) lbl0.textContent = '🌍 All Countries';
+  const plbl0 = document.getElementById('platform-dropdown-label');
+  if (plbl0) plbl0.textContent = '📱 All Platforms';
+  const pList = document.getElementById('platform-options-list');
+  if (pList) pList.querySelectorAll('button.platform-option').forEach(b => { b.style.background = ''; b.style.color = ''; });
+
+  const PLATFORM_FILTER_TYPES = ['total', 'social', 'trk_total', 'trk_social'];
+  const pWrap = document.getElementById('platform-dropdown-wrap');
+  if (pWrap) pWrap.style.display = PLATFORM_FILTER_TYPES.includes(type) ? '' : 'none';
+
+  window.loadModalData(1);
+};
+
+function renderModalRows(rows, tbody, meta, subtitleEl, totalCount) {
+  if (!rows || rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" class="text-center text-zinc-500 py-10">No records found for this filter</td></tr>';
     if (subtitleEl) subtitleEl.textContent = `${meta.subtitle} \u00b7 0 records`;
     return;
   }
-  const maxRows = 100;
-  const displayRows = rows.slice(0, maxRows);
-  tbody.innerHTML = displayRows.map(r =>
-    `<tr>
-      <td class="font-semibold text-white">${esc(r.name || '\u2014')}</td>
+  
+  tbody.innerHTML = rows.map(r => {
+    let platHtml = '-';
+    let nameHtml = `<span class="font-semibold text-white">${esc(r.name || '\u2014')}</span>`;
+    
+    if (r.platforms_details && r.platforms_details.length > 0) {
+      platHtml = '<div class="flex gap-1 flex-wrap">' + r.platforms_details.map(p => {
+        let badge = p.platform;
+        let shortLabel = p.platform;
+        let low = p.platform.toLowerCase();
+        if (low === 'instagram') shortLabel = 'IG';
+        else if (low === 'tiktok') shortLabel = 'TK';
+        else if (low === 'youtube') shortLabel = 'YT';
+        else if (low.includes('twitter') || low === 'x') shortLabel = 'X';
+        
+        if (p.profile_url && p.profile_url.trim()) {
+          return `<a href="${esc(p.profile_url)}" target="_blank" class="px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px] uppercase text-zinc-300 hover:text-white hover:bg-white/10 tracking-widest">${esc(shortLabel)}</a>`;
+        } else {
+          return `<span class="px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px] uppercase text-zinc-500 tracking-widest">${esc(shortLabel)}</span>`;
+        }
+      }).join(' ') + '</div>';
+      
+      const firstUrl = r.platforms_details.find(p => p.profile_url && p.profile_url.trim())?.profile_url;
+      if (firstUrl) {
+         nameHtml = `<a href="${esc(firstUrl)}" target="_blank" class="font-semibold px-2 py-1 bg-lime-500/10 rounded border border-lime-500/20 text-lime-400 hover:text-lime-300 hover:bg-lime-500/20 username-link transition-colors">${esc(r.name || '\u2014')}</a>`;
+      }
+    } else if (r.has_socials === false && r.email) {
+       nameHtml = `<span class="font-semibold text-white">${esc(r.name || '\u2014')}</span>`;
+    }
+
+    return `<tr>
+      <td>${nameHtml}</td>
+      <td>${platHtml}</td>
       <td class="font-mono text-xs text-zinc-300">${esc(r.email || '\u2014')}</td>
-    </tr>`
-  ).join('');
+    </tr>`;
+  }).join('');
+  
   if (subtitleEl) {
-    const limText = rows.length > maxRows ? ` (Showing 1st ${maxRows})` : '';
-    subtitleEl.textContent = `${meta.subtitle} \u00b7 ${rows.length.toLocaleString()} records${limText}`;
+    subtitleEl.textContent = `${meta.subtitle} \u00b7 ${totalCount.toLocaleString()} records`;
   }
 }
 
-/**
- * Client-side country filter (called by selectCountry).
- * Filters _modalRows by country code and re-renders without any API call.
- */
-// filterModalByCountry is kept for backward compat but now delegates to applyModalFilters
 window.filterModalByCountry = function(countryCode) {
   _activeCountryCode = countryCode;
   applyModalFilters();
@@ -1675,48 +1670,66 @@ window.closeDataModal = function() {
   const modal = document.getElementById('data-modal');
   if (modal) modal.style.display = 'none';
   document.body.style.overflow = '';
-  // Reset country dropdown
   _activeCountryCode = '';
   const panel = document.getElementById('country-dropdown-panel');
   const arrow = document.getElementById('country-dropdown-arrow');
   const lbl = document.getElementById('country-dropdown-label');
   if (panel) panel.classList.add('hidden');
   if (arrow) arrow.style.transform = 'rotate(0deg)';
-  if (lbl) lbl.textContent = '\uD83C\uDF0D All Countries';
-  // Reset platform dropdown
+  if (lbl) lbl.textContent = '🌍 All Countries';
   _activePlatform = '';
   const pPanel = document.getElementById('platform-dropdown-panel');
   const pArrow = document.getElementById('platform-dropdown-arrow');
   const pLbl   = document.getElementById('platform-dropdown-label');
   if (pPanel) pPanel.classList.add('hidden');
   if (pArrow) pArrow.style.transform = 'rotate(0deg)';
-  if (pLbl)   pLbl.textContent = '\uD83D\uDCF1 All Platforms';
+  if (pLbl)   pLbl.textContent = '📱 All Platforms';
 };
 
-/** Download current modal rows as a CSV (exports filtered set if country active, else all) */
-window.downloadModalCSV = function() {
-  let exportRows = _modalRows;
-  if (_activeCountryCode) exportRows = exportRows.filter(r => (r.country || '') === _activeCountryCode);
-  if (_activePlatform)    exportRows = exportRows.filter(r => (r.platform || '') === _activePlatform);
-  if (!exportRows || exportRows.length === 0) { alert('No data to export'); return; }
-  const lines = ['Name,Email'];
-  exportRows.forEach(r => {
-    const name  = (r.name  || '').replace(/,/g, ' ');
-    const email = (r.email || '').replace(/,/g, ' ');
-    lines.push(`"${name}","${email}"`);
-  });
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  // Count exported rows for the log
-  const exportCount = exportRows.length;
-  a.download = `signups_export_${Date.now()}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  console.log('[modal] CSV exported:', exportCount, 'rows');
+window.downloadModalCSV = async function(event) {
+  const btn = event ? event.currentTarget : document.querySelector('button[onclick="downloadModalCSV()"]');
+  const oldHtml = btn ? btn.innerHTML : 'CSV';
+  if (btn) btn.innerHTML = '⏳ Exporting...';
+  try {
+    const dp = getDateParams();
+    let url = `/api/influencer-details?type=${encodeURIComponent(modalState.type)}&page=1&limit=100000`;
+    if (dp) url += '&' + dp.slice(1);
+    if (_activeCountryCode) url += `&country=${encodeURIComponent(_activeCountryCode)}`;
+    if (_activePlatform) url += `&platform=${encodeURIComponent(_activePlatform)}`;
+
+    const r = await fetch(url);
+    const data = await r.json();
+    let exportRows = data.rows || [];
+    
+    if (exportRows.length === 0) {
+      alert("No data to export");
+      if (btn) btn.innerHTML = oldHtml;
+      return;
+    }
+    
+    const lines = ['Name,Email,Platform,Country'];
+    exportRows.forEach(r => {
+      const name = '"' + esc(r.name || '').replace(/"/g, '""') + '"';
+      const email = '"' + esc(r.email || '') + '"';
+      const plats = '"' + esc(r.socials || '').replace(/"/g, '""') + '"';
+      const country = '"' + esc(r.country || '') + '"';
+      lines.push(`${name},${email},${plats},${country}`);
+    });
+    
+    const blob = new Blob([lines.join('\\n')], { type: 'text/csv' });
+    const urlBlob = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = urlBlob;
+    a.download = `V1RA_${modalState.type}_export_${Date.now()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(urlBlob);
+  } catch (e) {
+    console.error('CSV Export Error:', e);
+    alert("Export failed");
+  }
+  if (btn) btn.innerHTML = oldHtml;
 };
 
 // ═══════════════════════════════════════════
@@ -1733,28 +1746,24 @@ window.downloadModalCSV = function() {
 window.loadTrackingCard = async function() {
   try {
     console.log('[tracking] Loading tracking card data...');
-
-    // Always fetch fresh — _signupStatsCache was removed in favour of fetchWithCache
     const data = await fetchInfluencerStats();
     if (!data) {
       console.warn('[tracking] No stats data available');
       return;
     }
 
-    const trkTotal  = (data.records_from_our_emails || []).length;
-    const trkSocial = (data.records_from_our_emails || []).filter(r => r.has_socials).length;
-    const trkEmail  = (data.records_from_our_emails || []).filter(r => !r.has_socials).length;
+    const trkTotal  = data.from_our_emails || 0;
+    const trkSocial = data.trk_social || 0;
+    const trkEmail  = data.trk_email || 0;
 
     console.log('[tracking] trk-total:', trkTotal, 'trk-social:', trkSocial, 'trk-email:', trkEmail);
 
-    // trk-sent now shows total sign-ups from our emails (clickable → opens trk_total modal)
-    animateVal('trk-sent', trkTotal);
+    const elSent = document.getElementById('trk-sent');
+    if(elSent) animateVal('trk-sent', trkTotal);
 
-    animateVal('trk-social',        trkSocial);
-    animateVal('trk-email',         trkEmail);
+    animateVal('trk-social', trkSocial);
+    animateVal('trk-email', trkEmail);
 
-
-    // Also update the main KPI signup cards (in case fetchSignups hasn't run yet)
     const totalSignups = data.total || 0;
     const withSocials  = data.with_socials || 0;
     const emailOnly    = data.email_only || 0;
@@ -1765,6 +1774,11 @@ window.loadTrackingCard = async function() {
     if (totalEl)  animateVal('c-signup-total',  totalSignups);
     if (socialEl) animateVal('c-signup-social', withSocials);
     if (emailEl)  animateVal('c-signup-email',  emailOnly);
+
+    // populate country dropdown using data.countryCodes, since openDataModal no longer fetches them immediately
+    if (data.countryCodes && data.countryCodes.length > 0) {
+        populateCountryDropdown(data.countryCodes);
+    }
 
     console.log('[tracking] Tracking card populated successfully');
   } catch(e) {
