@@ -160,6 +160,10 @@ let GLOBAL_STATE = {
 let sheetCache = { tk: [], ig: [], ash_tk: [], lastSync: 0 };
 const SHEET_SYNC_INTERVAL = 15 * 60 * 1000; // 15 mins
 
+// ─── Scraper 2 Sheet Cache (historical data — synced hourly) ───
+let scraper2Cache = { rows: [], lastSync: 0 };
+const SCRAPER2_SYNC_INTERVAL = 60 * 60 * 1000; // 1 hour
+
 /**
  * Syncs full data from Google Sheets (source of truth)
  */
@@ -249,6 +253,67 @@ async function syncGoogleSheets() {
   } catch (e) {
     console.error('❌ Google Sheets Sync Error:', e.message);
     return { tk: sheetCache.tk, ig: sheetCache.ig, ash_tk: sheetCache.ash_tk };
+  }
+}
+
+// ─── SCRAPER 2 SHEET (new overflow spreadsheet, merged with TikTok Ash) ───
+async function syncScraper2Sheet() {
+  const now = Date.now();
+  if (scraper2Cache.rows.length > 0 && (now - scraper2Cache.lastSync < SCRAPER2_SYNC_INTERVAL)) {
+    return scraper2Cache.rows; // serve from 1-hour cache
+  }
+
+  const spreadsheetId = (process.env.SCRAPER2_SPREADSHEET_ID || '').trim();
+  if (!spreadsheetId) {
+    console.warn('⚠️  SCRAPER2_SPREADSHEET_ID not set — skipping Scraper 2 sheet');
+    return scraper2Cache.rows;
+  }
+
+  const sheetName = (process.env.SCRAPER2_SHEET_NAME || 'Sheet1').trim();
+  const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE || path.join(SCRAPPER_DIR, 'service-account-key.json');
+  const inlineKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+
+  if (!inlineKey && !fs.existsSync(keyFile)) {
+    console.warn('⚠️  Service account key not found — skipping Scraper 2 sheet');
+    return scraper2Cache.rows;
+  }
+
+  try {
+    const authConfig = inlineKey
+      ? { credentials: JSON.parse(inlineKey), scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'] }
+      : { keyFile, scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'] };
+    const auth = new google.auth.GoogleAuth(authConfig);
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    // Resolve sheet title via metadata to handle special characters
+    const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties' });
+    const titles = (meta.data.sheets || []).map(s => s.properties.title);
+    const confirmedTitle = titles.find(t => t === sheetName) || titles[0]; // fall back to first tab
+    if (!confirmedTitle) {
+      console.warn(`⚠️  Scraper 2: sheet tab "${sheetName}" not found. Available: ${titles.join(', ')}`);
+      return scraper2Cache.rows;
+    }
+
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: confirmedTitle });
+    const values = res.data.values || [];
+    if (values.length < 2) {
+      console.warn('⚠️  Scraper 2 sheet has no data rows');
+      return scraper2Cache.rows;
+    }
+
+    const headers = values[0];
+    const rows = values.slice(1).map(row => {
+      const obj = {};
+      headers.forEach((h, i) => { if (h && row[i] !== undefined) obj[h.trim()] = row[i]; });
+      return obj;
+    });
+
+    console.log(`✅ Scraper 2 synced: ${rows.length} rows from "${confirmedTitle}"`);
+    scraper2Cache = { rows, lastSync: Date.now() };
+    return rows;
+  } catch (e) {
+    console.error('❌ Scraper 2 Sheet Sync Error:', e.message);
+    return scraper2Cache.rows; // return stale cache on error
   }
 }
 
@@ -343,12 +408,24 @@ async function refreshGlobalData() {
   const start = Date.now();
   console.log('🔄 Refreshing Global Data (including Sheets)...');
   try {
-    const [igCSV, tkCSV, { tk: tkSheet, ig: igSheet, ash_tk: ashTkSheet }, outreachHistory] = await Promise.all([
+    const [igCSV, tkCSV, { tk: tkSheet, ig: igSheet, ash_tk: ashTkSheet }, scraper2Rows, outreachHistory] = await Promise.all([
       Promise.resolve(readCSV(IG_CSV, 'ig')),
       Promise.resolve(TK_CSV ? readCSV(TK_CSV, 'tk') : []),
       syncGoogleSheets(),
+      syncScraper2Sheet(),
       syncOutreachSheet()
     ]);
+
+    // Merge TikTok Ash (old) + Scraper 2 (new), deduplicate by email (Scraper 2 wins)
+    const mergeAndDedupeAshTk = (old, fresh) => {
+      const map = new Map();
+      const key = r => (r['Email'] || r['email'] || r['Username'] || r['username'] || '').toLowerCase().trim();
+      old.forEach(r => { const k = key(r); if (k) map.set(k, r); });
+      fresh.forEach(r => { const k = key(r); if (k) map.set(k, r); }); // fresh overwrites old on dupe
+      return Array.from(map.values());
+    };
+    const mergedAshTk = mergeAndDedupeAshTk(ashTkSheet, scraper2Rows);
+    console.log(`🔀 Merged Ash+Scraper2: ${mergedAshTk.length} rows (${ashTkSheet.length} old + ${scraper2Rows.length} new, after dedup)`);
 
 
     // Deduplicate: Sheets take priority over CSV, key is Username or Email (fallback)
@@ -493,7 +570,7 @@ async function refreshGlobalData() {
 
     await processBatch(igRows, 1000, r => processRow(r, 'Instagram', cloudProcessedIg));
     await processBatch(tkRows, 1000, r => processRow(r, 'TikTok', cloudProcessedTk));
-    await processBatch(ashTkSheet, 1000, r => processRow(r, 'TikTok', ashProcessedTk));
+    await processBatch(mergedAshTk, 1000, r => processRow(r, 'TikTok', ashProcessedTk)); // merged: TikTok Ash + Scraper 2
 
     // 2. Process MongoDB Data
     try {
