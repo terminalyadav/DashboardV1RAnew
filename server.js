@@ -108,7 +108,12 @@ app.post('/api/logout', async (req, res) => {
 });
 
 
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'login.html')));
+app.get('/', async (req, res) => {
+  if (await hasSession(req.cookies?.session)) {
+    return res.redirect('/dashboard');
+  }
+  res.sendFile(path.join(__dirname, 'login.html'));
+});
 app.get('/dashboard', authMiddleware, (req, res) => res.sendFile(path.join(__dirname, 'dashboard.html')));
 
 // ─── Paths (env-var overridable for server deployment) ───
@@ -242,9 +247,9 @@ async function syncGoogleSheets() {
 
     console.log('📡 Fetching from Google Sheets...');
     const [tk, ig, ash_tk] = await Promise.all([
-      fetchSheet(cleanTiktokSheet).catch(e => { console.error('TK Sheet Error:', e.message); return []; }),
-      fetchSheet(cleanInstagramSheet).catch(e => { console.error('IG Sheet Error:', e.message); return []; }),
-      fetchSheet(cleanTiktokAshSheet).catch(e => { console.error('Ash TK Sheet Error:', e.message); return []; })
+      fetchSheet(cleanTiktokSheet).catch(e => { throw new Error(`TK Sheet Error: ${e.message}`); }),
+      fetchSheet(cleanInstagramSheet).catch(e => { throw new Error(`IG Sheet Error: ${e.message}`); }),
+      fetchSheet(cleanTiktokAshSheet).catch(e => { throw new Error(`Ash TK Sheet Error: ${e.message}`); })
     ]);
     console.log(`✅ Sheets synced: ${tk.length} TikTok, ${ig.length} Instagram, ${ash_tk.length} TikTok(Ash)`);
     
@@ -255,6 +260,9 @@ async function syncGoogleSheets() {
     return { tk: sheetCache.tk, ig: sheetCache.ig, ash_tk: sheetCache.ash_tk };
   }
 }
+
+let scraper3Cache = { rows: [], lastSync: 0 };
+const SCRAPER3_SYNC_INTERVAL = 60 * 60 * 1000;
 
 // ─── SCRAPER 2 SHEET (new overflow spreadsheet, merged with TikTok Ash) ───
 async function syncScraper2Sheet() {
@@ -314,6 +322,63 @@ async function syncScraper2Sheet() {
   } catch (e) {
     console.error('❌ Scraper 2 Sheet Sync Error:', e.message);
     return scraper2Cache.rows; // return stale cache on error
+  }
+}
+
+// ─── SCRAPER 3 SHEET (new 2nd overflow spreadsheet, merged with TikTok Ash) ───
+async function syncScraper3Sheet() {
+  const now = Date.now();
+  if (scraper3Cache.rows.length > 0 && (now - scraper3Cache.lastSync < SCRAPER3_SYNC_INTERVAL)) {
+    return scraper3Cache.rows;
+  }
+
+  const spreadsheetId = (process.env.SCRAPER3_SPREADSHEET_ID || '').trim();
+  if (!spreadsheetId) {
+    console.warn('⚠️  SCRAPER3_SPREADSHEET_ID not set — skipping Scraper 3 sheet');
+    return scraper3Cache.rows;
+  }
+
+  const sheetName = (process.env.SCRAPER3_SHEET_NAME || 'Sheet1').trim();
+  const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE || path.join(SCRAPPER_DIR, 'service-account-key.json');
+  const inlineKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+
+  if (!inlineKey && !fs.existsSync(keyFile)) {
+    console.warn('⚠️  Service account key not found — skipping Scraper 3 sheet');
+    return scraper3Cache.rows;
+  }
+
+  try {
+    const authConfig = inlineKey
+      ? { credentials: JSON.parse(inlineKey), scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'] }
+      : { keyFile, scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'] };
+    const auth = new google.auth.GoogleAuth(authConfig);
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties' });
+    const titles = (meta.data.sheets || []).map(s => s.properties.title);
+    const confirmedTitle = titles.find(t => t === sheetName) || titles[0]; 
+    if (!confirmedTitle) {
+      console.warn(`⚠️  Scraper 3: sheet tab "${sheetName}" not found. Available: ${titles.join(', ')}`);
+      return scraper3Cache.rows;
+    }
+
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: confirmedTitle });
+    const values = res.data.values || [];
+    if (values.length < 2) return scraper3Cache.rows;
+
+    const headers = values[0];
+    const rows = values.slice(1).map(row => {
+      const obj = {};
+      headers.forEach((h, i) => { if (h && row[i] !== undefined) obj[h.trim()] = row[i]; });
+      return obj;
+    });
+
+    console.log(`✅ Scraper 3 synced: ${rows.length} rows from "${confirmedTitle}"`);
+    scraper3Cache = { rows, lastSync: Date.now() };
+    return rows;
+  } catch (e) {
+    console.error('❌ Scraper 3 Sheet Sync Error:', e.message);
+    return scraper3Cache.rows;
   }
 }
 
@@ -408,38 +473,53 @@ async function refreshGlobalData() {
   const start = Date.now();
   console.log('🔄 Refreshing Global Data (including Sheets)...');
   try {
-    const [igCSV, tkCSV, { tk: tkSheet, ig: igSheet, ash_tk: ashTkSheet }, scraper2Rows, outreachHistory] = await Promise.all([
+    const [igCSV, tkCSV, { tk: tkSheet, ig: igSheet, ash_tk: ashTkSheet }, scraper2Rows, scraper3Rows, outreachHistory] = await Promise.all([
       Promise.resolve(readCSV(IG_CSV, 'ig')),
       Promise.resolve(TK_CSV ? readCSV(TK_CSV, 'tk') : []),
       syncGoogleSheets(),
       syncScraper2Sheet(),
+      syncScraper3Sheet(),
       syncOutreachSheet()
     ]);
 
-    // Merge TikTok Ash (old) + Scraper 2 (new), deduplicate by email (Scraper 2 wins)
-    const mergeAndDedupeAshTk = (old, fresh) => {
+    // Merge TikTok Ash (old) + Scraper 2 + Scraper 3, deduplicate by email (Latest wins)
+    const mergeAndDedupeAshTk = async (old, fresh1, fresh2) => {
       const map = new Map();
       const key = r => (r['Email'] || r['email'] || r['Username'] || r['username'] || '').toLowerCase().trim();
-      old.forEach(r => { const k = key(r); if (k) map.set(k, r); });
-      fresh.forEach(r => { const k = key(r); if (k) map.set(k, r); }); // fresh overwrites old on dupe
+      const addBatch = async (arr) => {
+        for (let i = 0; i < arr.length; i++) {
+          const k = key(arr[i]);
+          if (k) map.set(k, arr[i]);
+          if (i > 0 && i % 5000 === 0) await new Promise(r => setImmediate(r));
+        }
+      };
+      await addBatch(old);
+      await addBatch(fresh1);
+      await addBatch(fresh2);
       return Array.from(map.values());
     };
-    const mergedAshTk = mergeAndDedupeAshTk(ashTkSheet, scraper2Rows);
-    console.log(`🔀 Merged Ash+Scraper2: ${mergedAshTk.length} rows (${ashTkSheet.length} old + ${scraper2Rows.length} new, after dedup)`);
+    const mergedAshTk = await mergeAndDedupeAshTk(ashTkSheet, scraper2Rows, scraper3Rows);
+    console.log(`🔀 Merged Ash+Scraper2+Scraper3: ${mergedAshTk.length} rows (${ashTkSheet.length} Ash, ${scraper2Rows.length} S2, ${scraper3Rows.length} S3)`);
 
 
     // Deduplicate: Sheets take priority over CSV, key is Username or Email (fallback)
-    const dedupe = (csv, sheet) => {
+    const dedupe = async (csv, sheet) => {
       const map = new Map();
       const normalize = (r) => (r.Username || r.username || r.Email || r.email || '').toLowerCase().trim();
-      
-      csv.forEach(r => { const k = normalize(r); if(k) map.set(k, r); });
-      sheet.forEach(r => { const k = normalize(r); if(k) map.set(k, r); });
+      const addBatch = async (arr) => {
+        for (let i = 0; i < arr.length; i++) {
+          const k = normalize(arr[i]);
+          if (k) map.set(k, arr[i]);
+          if (i > 0 && i % 5000 === 0) await new Promise(r => setImmediate(r));
+        }
+      };
+      await addBatch(csv);
+      await addBatch(sheet);
       return Array.from(map.values());
     };
 
-    const igRows = dedupe(igCSV, igSheet);
-    const tkRows = dedupe(tkCSV, tkSheet);
+    const igRows = await dedupe(igCSV, igSheet);
+    const tkRows = await dedupe(tkCSV, tkSheet);
     
     const outreach = readOutreach();
     
@@ -1250,8 +1330,8 @@ async function loadSignups() {
     if (signupsCache.data.length > 0 && now - signupsCache.last_fetch < 60000) {
       return signupsCache.data;
     }
-    console.log('[DEBUG] Calling loadSignups() (single fetch, API caps at 1000)...');
-    const response = await fetch('https://app.v1ra.com/api/email-outreach');
+    console.log('[DEBUG] Calling loadSignups() fetching 5000 limit...');
+    const response = await fetch('https://app.v1ra.com/api/email-outreach?limit=10000');
     if (!response.ok) {
       console.error('Failed to fetch signups from API. Status:', response.status);
       return signupsCache.data;
@@ -1260,15 +1340,17 @@ async function loadSignups() {
     const raw = Array.isArray(parsed) ? parsed : (parsed.data || []);
     console.log(`[DEBUG] V1RA API total count: ${parsed.count || raw.length}, returned: ${raw.length}`);
 
-    // Deduplicate by email (safety net)
+    // Deduplicate fundamentally by a unique identifier or exact record content to avoid dropping legitimate social signups
     const seen = new Set();
     const signups = raw.filter(r => {
-      const email = (r.email || '').toLowerCase().trim();
-      if (!email || seen.has(email)) return false;
-      seen.add(email);
+      // Create a unique composite key since 'id' is missing from payload
+      const hash = `${(r.email || '').toLowerCase().trim()}_${r.name}_${r.created_at}`;
+      if (seen.has(hash)) return false;
+      seen.add(hash);
       return true;
     });
-    console.log(`[DEBUG] loadSignups() complete: ${signups.length} unique signups`);
+    
+    console.log(`[DEBUG] loadSignups() complete: ${signups.length} valid signups`);
     signupsCache = { data: signups, last_fetch: now };
     return signups;
   } catch (e) {
@@ -1307,13 +1389,19 @@ app.get(['/api/influencer-stats', '/api/signups'], authMiddleware, async (req, r
     const with_socials = filteredSignups.filter(s => Array.isArray(s.social_accounts) && s.social_accounts.length > 0).length;
     const email_only   = filteredSignups.filter(s => !Array.isArray(s.social_accounts) || s.social_accounts.length === 0).length;
 
-    const matched = filteredSignups.filter(s => s.email && scrapedEmails.has(String(s.email).toLowerCase().trim()));
+    // Improved tracking verification: match by exact email, or by explicit UTM tagging / referrer if available in future
+    const matched = filteredSignups.filter(s => {
+      const hasUtm = s.utm_source === 'email' || s.utm_campaign === 'outreach';
+      if (hasUtm) return true;
+      const sEmail = String(s.email || '').toLowerCase().trim();
+      return sEmail && scrapedEmails.has(sEmail);
+    });
     const from_our_emails = matched.length;
     const trk_social = matched.filter(s => Array.isArray(s.social_accounts) && s.social_accounts.length > 0).length;
     const trk_email = matched.filter(s => !Array.isArray(s.social_accounts) || s.social_accounts.length === 0).length;
 
     // Collect country codes for dropdown
-    const countryCodes = [...new Set(filteredSignups.map(s => s.locations?.country).filter(Boolean))].sort();
+    const countryCodes = [...new Set(filteredSignups.map(s => s.locations && s.locations.country).filter(Boolean))].sort();
 
     res.json({ total, from_our_emails, with_socials, email_only, trk_social, trk_email, countryCodes });
   } catch (e) { 
