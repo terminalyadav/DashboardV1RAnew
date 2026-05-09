@@ -7,3 +7,5 @@ nohup.out
 service-account-key.json
 scrapper/service-account-key.json
 scrapper/service-account-key.json
+
+.vercel

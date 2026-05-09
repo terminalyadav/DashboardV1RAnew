@@ -1,11 +1,12 @@
 // ── State ────────────────────────────────────────────────────────────────────
-let currentPage    = 1;
-let currentFilter  = 'all';
-let currentSearch  = '';
-let logPaused      = false;
-let activityChart  = null;
-let statsData      = null;
-let searchDebounce = null;
+let currentPage      = 1;
+let currentFilter    = 'all';
+let currentSearch    = '';
+let logPaused        = false;
+let activityChart    = null;
+let statsData        = null;
+let searchDebounce   = null;
+let refreshAbort     = null;
 
 // Escape HTML utility to prevent XSS
 const esc = (str) => {
@@ -49,23 +50,39 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 async function refreshAll() {
+  // Cancel any in-flight refresh
+  if (refreshAbort) refreshAbort.abort();
+  refreshAbort = new AbortController();
+  const { signal } = refreshAbort;
+
   const btn = document.getElementById('refreshBtn');
-  if(btn) { btn.disabled = true; btn.innerHTML = '↻ Refreshing...'; }
-  await loadStats();
-  await loadEmails(currentPage);
-  await refreshLog();
-  const lu = document.getElementById('lastUpdated');
-  if(lu) lu.textContent = 'Updated ' + new Date().toLocaleTimeString();
-  if(btn) { btn.disabled = false; btn.innerHTML = '↻ Refresh'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '↻ Refreshing…'; }
+
+  try {
+    await Promise.all([
+      loadStats(signal),
+      loadEmails(currentPage, signal),
+      refreshLog(),
+    ]);
+    const lu = document.getElementById('lastUpdated');
+    if (lu) lu.textContent = 'Updated ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    if (e.name !== 'AbortError') console.error('Refresh error:', e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '↻ Refresh'; }
+  }
 }
 
 // ── Stats ────────────────────────────────────────────────────────────────────
-async function loadStats() {
+async function loadStats(signal) {
   try {
-    const res = await fetch('/api/stats');
-    if(res.status === 401) { window.location.href='/'; return; }
+    const res = await fetch('/api/stats', signal ? { signal } : {});
+    if (res.status === 401) { window.location.href = '/'; return; }
     const data = await res.json();
     statsData = data;
+
+    // Remove skeleton state on first successful load
+    document.getElementById('statsGrid')?.removeAttribute('data-loading');
     
     animateCounter('s-accountsToday', data.today.accounts);
     animateCounter('s-emailsToday',   data.today.emails);
@@ -92,7 +109,7 @@ async function loadStats() {
     updateGoalRing(data.goal);
     renderChart(data.chart);
   } catch (e) {
-    console.error('Stats error:', e);
+    if (e.name !== 'AbortError') console.error('Stats error:', e);
   }
 }
 
@@ -159,16 +176,25 @@ function updateGoalRing({ target, today, percent }) {
 // ── Chart ─────────────────────────────────────────────────────────────────────
 function renderChart(chartData) {
   const cnvs = document.getElementById('activityChart');
-  if(!cnvs) return;
+  if (!cnvs) return;
   const ctx = cnvs.getContext('2d');
-  
+
   const labels    = chartData.map(d => d.label);
   const accounts  = chartData.map(d => d.igAccounts + d.tkAccounts);
   const emailsArr = chartData.map(d => d.igEmails   + d.tkEmails);
 
+  // Gradient fills
+  const indigoGrad = ctx.createLinearGradient(0, 0, 0, 300);
+  indigoGrad.addColorStop(0, 'rgba(93,95,239,.55)');
+  indigoGrad.addColorStop(1, 'rgba(93,95,239,.04)');
+
+  const emeraldGrad = ctx.createLinearGradient(0, 0, 0, 300);
+  emeraldGrad.addColorStop(0, 'rgba(16,185,129,.55)');
+  emeraldGrad.addColorStop(1, 'rgba(16,185,129,.04)');
+
   if (activityChart) { activityChart.destroy(); }
 
-  Chart.defaults.color = '#71717a';
+  Chart.defaults.color      = '#71717a';
   Chart.defaults.font.family = 'Inter';
 
   activityChart = new Chart(ctx, {
@@ -179,47 +205,69 @@ function renderChart(chartData) {
         {
           label: 'Accounts Scraped',
           data: accounts,
-          backgroundColor: 'rgba(79, 70, 229, 0.2)', // Indigo light match
-          borderColor: '#4f46e5',
-          borderWidth: 1,
-          borderRadius: 4,
+          backgroundColor: indigoGrad,
+          borderColor: '#5D5FEF',
+          borderWidth: 1.5,
+          borderRadius: 6,
           borderSkipped: false,
         },
         {
           label: 'Emails Found',
           data: emailsArr,
-          backgroundColor: 'rgba(16, 185, 129, 0.2)', // Emerald match
+          backgroundColor: emeraldGrad,
           borderColor: '#10b981',
-          borderWidth: 1,
-          borderRadius: 4,
+          borderWidth: 1.5,
+          borderRadius: 6,
           borderSkipped: false,
         }
       ]
     },
     options: {
-      responsive: true, maintainAspectRatio: false,
-      animation: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 700, easing: 'easeOutQuart' },
       plugins: {
         legend: {
-          labels: { color: '#a1a1aa', font: { family: 'Inter', size: 12 }, boxWidth: 12, boxHeight: 12 }
+          labels: {
+            color: '#a1a1aa',
+            font: { family: 'Inter', size: 12 },
+            boxWidth: 12,
+            boxHeight: 12,
+            usePointStyle: true,
+            pointStyle: 'circle',
+          }
         },
         tooltip: {
-          backgroundColor: '#18181b', borderColor: 'rgba(255,255,255,0.08)',
-          borderWidth: 1, titleColor: '#fafafa', bodyColor: '#a1a1aa',
-          padding: 12, cornerRadius: 8,
+          backgroundColor: '#18181b',
+          borderColor: 'rgba(255,255,255,.1)',
+          borderWidth: 1,
+          titleColor: '#fafafa',
+          bodyColor: '#a1a1aa',
+          padding: 14,
+          cornerRadius: 10,
+          displayColors: true,
           callbacks: {
             afterBody: (items) => {
               const idx = items[0].dataIndex;
               const d   = chartData[idx];
-              return [`IG: ${d.igAccounts.toLocaleString()} accts / ${d.igEmails.toLocaleString()} emails`,
-                      `TK: ${d.tkAccounts.toLocaleString()} accts / ${d.tkEmails.toLocaleString()} emails`];
+              return [
+                `IG: ${d.igAccounts.toLocaleString()} accts / ${d.igEmails.toLocaleString()} emails`,
+                `TK: ${d.tkAccounts.toLocaleString()} accts / ${d.tkEmails.toLocaleString()} emails`,
+              ];
             }
           }
         }
       },
       scales: {
-        x: { grid: { color: 'rgba(255,255,255,0.03)' } },
-        y: { grid: { color: 'rgba(255,255,255,0.05)' }, beginAtZero: true },
+        x: {
+          grid: { color: 'rgba(255,255,255,.03)', drawBorder: false },
+          ticks: { font: { size: 11 }, maxRotation: 0 },
+        },
+        y: {
+          grid: { color: 'rgba(255,255,255,.05)', drawBorder: false },
+          beginAtZero: true,
+          ticks: { font: { size: 11 } },
+        }
       }
     }
   });
@@ -228,22 +276,22 @@ function renderChart(chartData) {
   const targetPlugin = {
     id: 'targetLine',
     afterDraw(chart) {
-      const { ctx, scales: { y } } = chart;
+      const { ctx: c, scales: { y } } = chart;
       const yVal = 1500;
       if (yVal < y.min || yVal > y.max) return;
       const yPos = y.getPixelForValue(yVal);
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(chart.chartArea.left, yPos);
-      ctx.lineTo(chart.chartArea.right, yPos);
-      ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-      ctx.stroke();
-      ctx.fillStyle = 'rgba(245, 158, 11, 0.8)';
-      ctx.font = '10px Inter';
-      ctx.fillText('Target 1,500', chart.chartArea.right - 70, yPos - 5);
-      ctx.restore();
+      c.save();
+      c.beginPath();
+      c.moveTo(chart.chartArea.left, yPos);
+      c.lineTo(chart.chartArea.right, yPos);
+      c.strokeStyle = 'rgba(245,158,11,.45)';
+      c.lineWidth   = 1.5;
+      c.setLineDash([5, 5]);
+      c.stroke();
+      c.fillStyle = 'rgba(245,158,11,.85)';
+      c.font      = '10px Inter';
+      c.fillText('Target 1,500', chart.chartArea.right - 72, yPos - 6);
+      c.restore();
     }
   };
   activityChart.config.plugins.push(targetPlugin);
@@ -251,14 +299,14 @@ function renderChart(chartData) {
 }
 
 // ── Email Table ───────────────────────────────────────────────────────────────
-async function loadEmails(page = 1) {
+async function loadEmails(page = 1, signal) {
   currentPage = page;
   const params = new URLSearchParams({ page, status: currentFilter, q: currentSearch });
   try {
-    const data = await fetch(`/api/emails?${params}`).then(r => r.json());
+    const data = await fetch(`/api/emails?${params}`, signal ? { signal } : {}).then(r => r.json());
     renderTable(data);
   } catch (e) {
-    console.error('Emails error:', e);
+    if (e.name !== 'AbortError') console.error('Emails error:', e);
   }
 }
 
@@ -278,14 +326,14 @@ function renderTable({ total, page, limit, rows }) {
   tbody.innerHTML = rows.map(r => {
     const platform = r.platform === 'Instagram'
       ? '<span class="badge info">IG</span>'
-      : '<span class="badge" style="background:rgba(6,182,212,0.1);color:#06b6d4;border:1px solid rgba(6,182,212,0.2)">TK</span>';
+      : '<span class="badge cyan">TK</span>';
     const status = r.status === 'sent'
-      ? '<span class="badge success"><span style="width:6px;height:6px;border-radius:50%;background:currentColor"></span> Sent</span>'
-      : '<span class="badge warning"><span style="width:6px;height:6px;border-radius:50%;background:currentColor;animation:pulse 2s infinite"></span> Pending</span>';
-    
+      ? '<span class="badge success"><span class="badge-dot"></span> Sent</span>'
+      : '<span class="badge warning"><span class="badge-dot"></span> Pending</span>';
+
     const action = r.status === 'sent'
-      ? `<button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="markUnsent('${esc(r.email)}', this)">Undo</button>`
-      : `<button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;color:var(--brand-emerald-l);border-color:rgba(16,185,129,0.3)" onclick="markSent('${esc(r.email)}', '${esc(r.username)}', this)">Mark Sent</button>`;
+      ? `<button class="btn btn-secondary btn-xs" onclick="markUnsent('${esc(r.email)}', this)">Undo</button>`
+      : `<button class="btn btn-secondary btn-xs success" onclick="markSent('${esc(r.email)}', '${esc(r.username)}', this)">Mark Sent</button>`;
       
     const date = r.scrapedAt ? new Date(r.scrapedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }) : '–';
     const followers = r.followers ? parseInt(r.followers).toLocaleString() : '–';
@@ -293,10 +341,10 @@ function renderTable({ total, page, limit, rows }) {
     return `
       <tr>
         <td>${platform}</td>
-        <td style="font-weight:600;"><a href="${esc(r.profileUrl)}" target="_blank" style="color:inherit;text-decoration:none">@${esc(r.username)}</a></td>
-        <td class="font-mono" style="font-size:12px;color:var(--text-muted)">${esc(r.email)}</td>
-        <td style="color:var(--text-dark)">${followers}</td>
-        <td style="color:var(--text-dark)">${date}</td>
+        <td class="td-username"><a href="${esc(r.profileUrl)}" target="_blank" rel="noopener noreferrer" class="username-link">@${esc(r.username)}</a></td>
+        <td class="font-mono td-email">${esc(r.email)}</td>
+        <td>${followers}</td>
+        <td>${date}</td>
         <td>${status}</td>
         <td>${action}</td>
       </tr>`;

@@ -1,85 +1,102 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>⚡ V1RA</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>⚡ V1RA</title>
+
+  <!-- Fonts: preconnect for speed -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- Chart.js: deferred so it doesn't block first paint -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
+
   <link rel="stylesheet" href="/public/styles.css" />
 </head>
 <body>
 
+<!-- Animated mesh background -->
+<div class="mesh-bg" aria-hidden="true">
+  <div class="mesh-blob mesh-blob-1"></div>
+  <div class="mesh-blob mesh-blob-2"></div>
+  <div class="mesh-blob mesh-blob-3"></div>
+</div>
+<div class="noise-overlay" aria-hidden="true"></div>
 
-<!-- Toast -->
-<div class="toast" id="toast"></div>
+<!-- Toast notifications -->
+<div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-atomic="false"></div>
 
 <div class="wrap">
+
   <!-- ── Header ── -->
-  <header style="display: flex; align-items: center; justify-content: space-between; padding: 32px 0; border-bottom: 1px solid var(--border-light); margin-bottom: 32px;">
-    <div style="display: flex; align-items: center; gap: 16px;">
-      <div style="width: 48px; height: 48px; border-radius: 12px; background: linear-gradient(135deg, var(--brand-indigo), var(--brand-cyan)); display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 4px 20px rgba(79, 70, 229, 0.4);">
-        ⚡
-      </div>
+  <header class="site-header">
+    <div class="header-brand">
+      <div class="header-logo" aria-hidden="true">⚡</div>
       <div>
-        <div style="font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: var(--text-primary);">V1RA</div>
-        <div style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">Email Scraper</div>
+        <div class="brand-name">V1RA</div>
+        <div class="brand-sub">Email Scraper</div>
       </div>
     </div>
-    <div style="display: flex; align-items: center; gap: 20px;">
-      <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--brand-emerald-l);">
-        <span style="display: block; width: 8px; height: 8px; border-radius: 50%; background: var(--brand-emerald); box-shadow: 0 0 12px var(--brand-emerald);"></span>
+    <nav class="header-nav" aria-label="Dashboard controls">
+      <div class="live-indicator" role="status" aria-label="Live connection active">
+        <span class="live-dot" aria-hidden="true"></span>
         Live Connection
       </div>
-      <div id="lastUpdated" style="font-size: 13px; color: var(--text-dark);">–</div>
-      <button class="btn btn-secondary" onclick="refreshAll()" id="refreshBtn">↻ Refresh</button>
-    </div>
+      <div id="lastUpdated" class="last-updated" aria-live="polite">–</div>
+      <button class="btn btn-secondary" onclick="refreshAll()" id="refreshBtn" aria-label="Refresh all dashboard data">
+        ↻ Refresh
+      </button>
+    </nav>
   </header>
 
-  <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px;">
-    <div class="card" style="padding: 20px;">
-      <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px;">📊 Accounts Today</div>
-      <div id="s-accountsToday" style="font-size: 32px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">–</div>
-      <div id="s-accountsTodayBreak" style="font-size: 12px; color: var(--text-dark);">IG + TK</div>
+  <!-- ── Stats Grid ── -->
+  <div class="stats-grid" id="statsGrid" data-loading>
+    <div class="card stat-card fade-in fade-in-delay-1">
+      <div class="stat-label">📊 Accounts Today</div>
+      <div id="s-accountsToday" class="stat-value">–</div>
+      <div id="s-accountsTodayBreak" class="stat-sub">IG + TK</div>
     </div>
-    
-    <div class="card" style="padding: 20px; border-top: 2px solid var(--brand-indigo);">
-      <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--brand-indigo-l); margin-bottom: 8px;">📧 Emails Today</div>
-      <div id="s-emailsToday" style="font-size: 32px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">–</div>
-      <div id="s-emailsTodaySub" style="font-size: 12px; color: var(--text-dark);">of today's accounts</div>
+
+    <div class="card stat-card accent-indigo fade-in fade-in-delay-2">
+      <div class="stat-label indigo">📧 Emails Today</div>
+      <div id="s-emailsToday" class="stat-value">–</div>
+      <div id="s-emailsTodaySub" class="stat-sub">of today's accounts</div>
     </div>
-    
-    <div class="card" style="padding: 20px;">
-      <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px;">🗂 Total Accounts</div>
-      <div id="s-totalAccounts" style="font-size: 32px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">–</div>
-      <div style="font-size: 12px; color: var(--text-dark);">all time</div>
+
+    <div class="card stat-card fade-in fade-in-delay-3">
+      <div class="stat-label">🗂 Total Accounts</div>
+      <div id="s-totalAccounts" class="stat-value">–</div>
+      <div class="stat-sub">all time</div>
     </div>
-    
-    <div class="card" style="padding: 20px; border-top: 2px solid var(--brand-emerald);">
-      <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--brand-emerald-l); margin-bottom: 8px;">✅ Emails Sent</div>
-      <div id="s-sent" style="font-size: 32px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">–</div>
-      <div id="s-sentSub" style="font-size: 12px; color: var(--text-dark);">of total emails</div>
+
+    <div class="card stat-card accent-emerald fade-in fade-in-delay-4">
+      <div class="stat-label emerald">✅ Emails Sent</div>
+      <div id="s-sent" class="stat-value">–</div>
+      <div id="s-sentSub" class="stat-sub">of total emails</div>
     </div>
-    
-    <div class="card" style="padding: 20px; border-top: 2px solid var(--brand-amber);">
-      <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--brand-amber); margin-bottom: 8px;">⏳ Pending Outreach</div>
-      <div id="s-pending" style="font-size: 32px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">–</div>
-      <div id="s-hitRate" style="font-size: 12px; color: var(--text-dark);">–% hit rate</div>
+
+    <div class="card stat-card accent-amber fade-in fade-in-delay-5">
+      <div class="stat-label amber">⏳ Pending Outreach</div>
+      <div id="s-pending" class="stat-value">–</div>
+      <div id="s-hitRate" class="stat-sub">–% hit rate</div>
     </div>
   </div>
 
   <!-- ── Chart + Goal ── -->
-  <div style="display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; margin-bottom: 24px;">
-    <div class="card" style="padding: 24px; min-height: 380px;">
+  <div class="chart-goal-grid">
+    <div class="card chart-card">
       <div class="section-label">📈 14-Day Scraping Activity</div>
-      <div style="height: 300px; width: 100%;">
-        <canvas id="activityChart"></canvas>
+      <div class="chart-wrap">
+        <canvas id="activityChart" role="img" aria-label="14-day scraping activity chart"></canvas>
       </div>
     </div>
-    <div class="card" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center;">
-      <div class="section-label" style="width: 100%; margin-bottom: 0;">🎯 Daily Goal</div>
-      <div style="position: relative; width: 160px; height: 160px; margin: 16px 0;">
-        <svg viewBox="0 0 160 160" width="160" height="160" style="transform: rotate(-90deg);">
+
+    <div class="card goal-card">
+      <div class="section-label" style="width:100%;margin-bottom:0">🎯 Daily Goal</div>
+      <div class="goal-ring-wrap">
+        <svg viewBox="0 0 160 160" width="160" height="160" style="transform:rotate(-90deg)" aria-hidden="true">
           <defs>
             <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stop-color="var(--brand-indigo)" />
@@ -87,45 +104,54 @@
             </linearGradient>
           </defs>
           <circle cx="80" cy="80" r="68" fill="none" stroke="var(--border-medium)" stroke-width="12" />
-          <circle id="goalRingFg" cx="80" cy="80" r="68" fill="none" stroke="url(#ringGrad)" stroke-width="12" stroke-linecap="round" stroke-dasharray="427.26" stroke-dashoffset="427.26" style="transition: stroke-dashoffset 1.2s cubic-bezier(0.34, 1.56, 0.64, 1);" />
+          <circle id="goalRingFg" cx="80" cy="80" r="68" fill="none"
+            stroke="url(#ringGrad)" stroke-width="12" stroke-linecap="round"
+            stroke-dasharray="427.26" stroke-dashoffset="427.26"
+            style="transition:stroke-dashoffset 1.2s cubic-bezier(.34,1.56,.64,1)" />
         </svg>
-        <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-          <div id="goalPct" style="font-size: 32px; font-weight: 800; letter-spacing: -1px; background: linear-gradient(135deg, var(--brand-indigo-l), var(--brand-emerald-l)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;">0%</div>
-          <div style="font-size: 11px; color: var(--text-dark); font-weight: 500; text-transform: uppercase;">complete</div>
+        <div class="goal-ring-label">
+          <div id="goalPct" class="goal-pct">0%</div>
+          <div class="goal-pct-sub">complete</div>
         </div>
       </div>
-      <div id="goalNum" style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">0 / 1,500</div>
-      <div style="font-size: 12px; color: var(--text-dark); margin-bottom: 16px;">accounts scraped today</div>
-      <div id="goalEta" style="font-size: 12px; color: var(--text-muted); background: var(--bg-darker); border: 1px solid var(--border-light); border-radius: 8px; padding: 6px 12px; width: 100%;">Calculating…</div>
+      <div id="goalNum" class="goal-num">0 / 1,500</div>
+      <div class="goal-desc">accounts scraped today</div>
+      <div id="goalEta" class="goal-eta">Calculating…</div>
     </div>
   </div>
 
   <!-- ── Email Table ── -->
   <div class="email-section card">
     <div class="table-toolbar">
-      <div style="position: relative; flex: 1; min-width: 200px;">
-        <input type="text" id="emailSearch" class="input-field" placeholder="Search username or email…" oninput="onSearch()" />
+      <div class="search-wrap">
+        <input type="text" id="emailSearch" class="input-field"
+          placeholder="Search username or email…"
+          oninput="onSearch()"
+          aria-label="Search emails by username or address" />
       </div>
       <button class="btn btn-secondary active" id="btn-all"     onclick="setFilter('all')">All</button>
       <button class="btn btn-secondary"        id="btn-pending" onclick="setFilter('pending')">⏳ Pending</button>
       <button class="btn btn-secondary"        id="btn-sent"    onclick="setFilter('sent')">✅ Sent</button>
-      <div style="font-size: 13px; color: var(--text-muted); margin-left: auto;" id="tableCount">–</div>
+      <div class="table-count" id="tableCount" aria-live="polite">–</div>
     </div>
-    <div class="table-wrap">
+
+    <div class="table-wrap" role="region" aria-label="Email data table">
       <table>
         <thead>
           <tr>
-            <th>Platform</th>
-            <th>Username</th>
-            <th>Email</th>                             
-            <th>Followers</th>
-            <th>Scraped</th>
-            <th>Status</th>
-            <th>Action</th>
+            <th scope="col">Platform</th>
+            <th scope="col">Username</th>
+            <th scope="col">Email</th>
+            <th scope="col">Followers</th>
+            <th scope="col">Scraped</th>
+            <th scope="col">Status</th>
+            <th scope="col">Action</th>
           </tr>
         </thead>
         <tbody id="emailTableBody">
-          <tr><td colspan="7" style="text-align:center;padding:40px;color:var(--muted)">Loading…</td></tr>
+          <tr>
+            <td colspan="7" style="text-align:center;padding:40px;color:var(--text-muted)">Loading…</td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -133,17 +159,24 @@
   </div>
 
   <!-- ── Log Terminal ── -->
-  <div class="card log-section" style="margin-bottom: 24px">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-      <div class="section-label" style="margin-bottom: 0;">🔴 Live Activity Log</div>
-      <button class="btn btn-secondary" id="pauseBtn" onclick="togglePause()" style="font-family: var(--font-mono); font-size: 11px; padding: 6px 10px;">⏸ Pause</button>
+  <div class="card log-section">
+    <div class="log-header">
+      <div class="section-label" style="margin-bottom:0">🔴 Live Activity Log</div>
+      <button class="btn btn-secondary" id="pauseBtn" onclick="togglePause()"
+        style="font-family:var(--font-mono);font-size:11px;padding:6px 10px"
+        aria-label="Pause live log updates">
+        ⏸ Pause
+      </button>
     </div>
-    <div id="logTerminal" class="font-mono" style="background: var(--bg-darker); border: 1px solid var(--border-light); border-radius: 12px; padding: 20px; height: 320px; overflow-y: auto; font-size: 12px; line-height: 1.6;">
-      <div style="color: var(--text-muted); text-align: center; padding: 40px;">Loading log…</div>
+    <div id="logTerminal" class="log-terminal"
+      role="log" aria-label="Live activity log" aria-live="off">
+      <div style="color:var(--text-muted);text-align:center;padding:40px">Loading log…</div>
     </div>
   </div>
-</div>
 
-<script src="/public/app.js"></script>
+</div><!-- /.wrap -->
+
+<!-- App script: deferred after Chart.js -->
+<script src="/public/app.js" defer></script>
 </body>
 </html>
